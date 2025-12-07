@@ -43,38 +43,98 @@ function getUserAgent(req: NextRequest): string {
   return req.headers.get('user-agent') || 'Unknown'
 }
 
-// Call IP2Location API
+// ProxyCheck.io API key (free tier includes VPN detection)
+const PROXYCHECK_API_KEY = process.env.PROXYCHECK_API_KEY || ''
+
+// Call IP lookup APIs
 async function lookupIP(ip: string): Promise<{
   isProxy: boolean
   countryCode: string
   error?: string
 }> {
   // Skip API call in development or if no key
-  if (!IP2LOCATION_API_KEY || ip === '127.0.0.1' || ip === '::1') {
-    console.log('[Precheck] Skipping IP lookup - no API key or localhost')
+  if (ip === '127.0.0.1' || ip === '::1') {
+    console.log('[Precheck] Skipping IP lookup - localhost')
     return {
       isProxy: false,
       countryCode: 'US', // Default for dev
     }
   }
 
+  // Try ProxyCheck.io first (free VPN detection)
+  if (PROXYCHECK_API_KEY) {
+    try {
+      const proxyCheckResult = await checkWithProxyCheck(ip)
+      if (!proxyCheckResult.error) {
+        return proxyCheckResult
+      }
+    } catch (e) {
+      console.error('[Precheck] ProxyCheck failed, falling back to IP2Location')
+    }
+  }
+
+  // Fallback to IP2Location
+  if (IP2LOCATION_API_KEY) {
+    return await checkWithIP2Location(ip)
+  }
+
+  // No API keys configured
+  console.warn('[Precheck] No IP lookup API keys configured')
+  return { isProxy: false, countryCode: 'XX', error: 'No API keys' }
+}
+
+// ProxyCheck.io - Free tier includes VPN detection!
+async function checkWithProxyCheck(ip: string): Promise<{
+  isProxy: boolean
+  countryCode: string
+  error?: string
+}> {
   try {
-    const url = `https://api.ip2location.io/?key=${IP2LOCATION_API_KEY}&ip=${ip}&format=json`
-    const res = await fetch(url, { 
-      cache: 'no-store' // Don't cache to ensure fresh results
-    })
+    const url = `https://proxycheck.io/v2/${ip}?key=${PROXYCHECK_API_KEY}&vpn=1&asn=1`
+    const res = await fetch(url, { cache: 'no-store' })
     
     if (!res.ok) {
-      console.error('[Precheck] IP2Location API error:', res.status)
-      return { isProxy: false, countryCode: 'XX', error: 'API error' }
+      console.error('[Precheck] ProxyCheck API error:', res.status)
+      return { isProxy: false, countryCode: 'XX', error: 'ProxyCheck API error' }
     }
     
     const data = await res.json()
+    console.log('[Precheck] ProxyCheck response:', JSON.stringify(data))
     
-    // Log full response for debugging
-    console.log('[Precheck] IP2Location response for', ip, ':', JSON.stringify(data))
+    const ipData = data[ip] || {}
+    const isProxy = ipData.proxy === 'yes' || ipData.type === 'VPN' || ipData.type === 'Proxy'
     
-    // Check various proxy/VPN indicators from IP2Location
+    console.log('[Precheck] ProxyCheck - VPN detected:', isProxy, 'Country:', ipData.isocode)
+    
+    return {
+      isProxy: Boolean(isProxy),
+      countryCode: (ipData.isocode || 'XX').toUpperCase(),
+    }
+  } catch (error) {
+    console.error('[Precheck] ProxyCheck lookup failed:', error)
+    return { isProxy: false, countryCode: 'XX', error: 'ProxyCheck lookup failed' }
+  }
+}
+
+// IP2Location fallback
+async function checkWithIP2Location(ip: string): Promise<{
+  isProxy: boolean
+  countryCode: string
+  error?: string
+}> {
+  try {
+    const url = `https://api.ip2location.io/?key=${IP2LOCATION_API_KEY}&ip=${ip}&format=json`
+    const res = await fetch(url, { cache: 'no-store' })
+    
+    if (!res.ok) {
+      console.error('[Precheck] IP2Location API error:', res.status)
+      return { isProxy: false, countryCode: 'XX', error: 'IP2Location API error' }
+    }
+    
+    const data = await res.json()
+    console.log('[Precheck] IP2Location response:', JSON.stringify(data))
+    
+    // Check various proxy/VPN indicators
     // Note: Free tier may not include is_proxy or proxy_type fields!
     const isProxy = 
       data.is_proxy === true ||
@@ -85,10 +145,9 @@ async function lookupIP(ip: string): Promise<{
       data.proxy_type === 'PUB' ||
       data.proxy_type === 'WEB' ||
       (data.usage_type && data.usage_type.includes('VPN')) ||
-      (data.usage_type && data.usage_type.includes('DCH')) ||
-      (data.usage_type && data.usage_type.includes('SES'))
+      (data.usage_type && data.usage_type.includes('DCH'))
     
-    console.log('[Precheck] VPN detected:', isProxy, 'Country:', data.country_code)
+    console.log('[Precheck] IP2Location - VPN detected:', isProxy, 'Country:', data.country_code)
     
     return {
       isProxy: Boolean(isProxy),
@@ -96,7 +155,7 @@ async function lookupIP(ip: string): Promise<{
     }
   } catch (error) {
     console.error('[Precheck] IP2Location lookup failed:', error)
-    return { isProxy: false, countryCode: 'XX', error: 'Lookup failed' }
+    return { isProxy: false, countryCode: 'XX', error: 'IP2Location lookup failed' }
   }
 }
 
