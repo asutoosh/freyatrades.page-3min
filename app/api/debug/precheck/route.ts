@@ -1,0 +1,60 @@
+import { NextRequest, NextResponse } from 'next/server'
+
+/**
+ * Debug endpoint to see what's happening with precheck
+ * GET /api/debug/precheck
+ */
+export async function GET(req: NextRequest) {
+  const RESTRICTED_COUNTRIES = (process.env.RESTRICTED_COUNTRIES || 'IN')
+    .split(',')
+    .map(c => c.trim().toUpperCase())
+    .filter(Boolean)
+
+  // Get client IP
+  const forwarded = req.headers.get('x-forwarded-for')
+  const ip = forwarded ? forwarded.split(',')[0].trim() : 'unknown'
+  
+  // Get IP2Location API key
+  const IP2LOCATION_API_KEY = process.env.IP2LOCATION_API_KEY || ''
+  
+  // Lookup IP
+  let ipInfo = { countryCode: 'UNKNOWN', isProxy: false, error: null as string | null }
+  
+  if (IP2LOCATION_API_KEY && ip !== 'unknown') {
+    try {
+      const url = `https://api.ip2location.io/?key=${IP2LOCATION_API_KEY}&ip=${ip}&format=json`
+      const res = await fetch(url)
+      if (res.ok) {
+        const data = await res.json()
+        ipInfo = {
+          countryCode: (data.country_code || 'XX').toUpperCase(),
+          isProxy: Boolean(
+            data.is_proxy === true ||
+            data.is_proxy === 1 ||
+            data.proxy_type === 'VPN' ||
+            data.proxy_type === 'TOR' ||
+            data.proxy_type === 'DCH' ||
+            data.proxy_type === 'PUB' ||
+            data.proxy_type === 'WEB'
+          ),
+          error: null,
+        }
+      }
+    } catch (error: any) {
+      ipInfo.error = error.message
+    }
+  }
+
+  return NextResponse.json({
+    debug: {
+      yourIP: ip,
+      detectedCountry: ipInfo.countryCode,
+      isProxy: ipInfo.isProxy,
+      restrictedCountries: RESTRICTED_COUNTRIES,
+      isRestricted: RESTRICTED_COUNTRIES.includes(ipInfo.countryCode),
+      ip2LocationKey: IP2LOCATION_API_KEY ? '✅ Set' : '❌ Missing',
+      error: ipInfo.error,
+    },
+  })
+}
+
