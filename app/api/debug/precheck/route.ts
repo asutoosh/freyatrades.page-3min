@@ -17,8 +17,8 @@ export async function GET(req: NextRequest) {
   // Get IP2Location API key
   const IP2LOCATION_API_KEY = process.env.IP2LOCATION_API_KEY || ''
   
-  // Lookup IP
-  let ipInfo = { countryCode: 'UNKNOWN', isProxy: false, error: null as string | null }
+  // Lookup IP - get FULL response to debug
+  let ipInfo: any = { countryCode: 'UNKNOWN', isProxy: false, error: null, rawResponse: null }
   
   if (IP2LOCATION_API_KEY && ip !== 'unknown') {
     try {
@@ -26,19 +26,28 @@ export async function GET(req: NextRequest) {
       const res = await fetch(url)
       if (res.ok) {
         const data = await res.json()
+        
+        // Check all possible proxy indicators
+        const isProxy = Boolean(
+          data.is_proxy === true ||
+          data.is_proxy === 1 ||
+          data.proxy_type === 'VPN' ||
+          data.proxy_type === 'TOR' ||
+          data.proxy_type === 'DCH' ||
+          data.proxy_type === 'PUB' ||
+          data.proxy_type === 'WEB' ||
+          (data.usage_type && data.usage_type.includes('VPN')) ||
+          (data.usage_type && data.usage_type.includes('DCH'))
+        )
+        
         ipInfo = {
           countryCode: (data.country_code || 'XX').toUpperCase(),
-          isProxy: Boolean(
-            data.is_proxy === true ||
-            data.is_proxy === 1 ||
-            data.proxy_type === 'VPN' ||
-            data.proxy_type === 'TOR' ||
-            data.proxy_type === 'DCH' ||
-            data.proxy_type === 'PUB' ||
-            data.proxy_type === 'WEB'
-          ),
+          isProxy: isProxy,
           error: null,
+          rawResponse: data, // Include full response for debugging
         }
+      } else {
+        ipInfo.error = `API returned ${res.status}`
       }
     } catch (error: any) {
       ipInfo.error = error.message
@@ -54,6 +63,8 @@ export async function GET(req: NextRequest) {
       isRestricted: RESTRICTED_COUNTRIES.includes(ipInfo.countryCode),
       ip2LocationKey: IP2LOCATION_API_KEY ? '✅ Set' : '❌ Missing',
       error: ipInfo.error,
+      // Show raw IP2Location response to understand what fields are available
+      ip2LocationRawResponse: ipInfo.rawResponse,
     },
   })
 }

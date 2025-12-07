@@ -51,6 +51,7 @@ async function lookupIP(ip: string): Promise<{
 }> {
   // Skip API call in development or if no key
   if (!IP2LOCATION_API_KEY || ip === '127.0.0.1' || ip === '::1') {
+    console.log('[Precheck] Skipping IP lookup - no API key or localhost')
     return {
       isProxy: false,
       countryCode: 'US', // Default for dev
@@ -60,17 +61,21 @@ async function lookupIP(ip: string): Promise<{
   try {
     const url = `https://api.ip2location.io/?key=${IP2LOCATION_API_KEY}&ip=${ip}&format=json`
     const res = await fetch(url, { 
-      next: { revalidate: 60 } // Cache for 1 minute
+      cache: 'no-store' // Don't cache to ensure fresh results
     })
     
     if (!res.ok) {
-      console.error('IP2Location API error:', res.status)
+      console.error('[Precheck] IP2Location API error:', res.status)
       return { isProxy: false, countryCode: 'XX', error: 'API error' }
     }
     
     const data = await res.json()
     
+    // Log full response for debugging
+    console.log('[Precheck] IP2Location response for', ip, ':', JSON.stringify(data))
+    
     // Check various proxy/VPN indicators from IP2Location
+    // Note: Free tier may not include is_proxy or proxy_type fields!
     const isProxy = 
       data.is_proxy === true ||
       data.is_proxy === 1 ||
@@ -79,14 +84,18 @@ async function lookupIP(ip: string): Promise<{
       data.proxy_type === 'DCH' ||
       data.proxy_type === 'PUB' ||
       data.proxy_type === 'WEB' ||
-      (data.usage_type && data.usage_type.includes('VPN'))
+      (data.usage_type && data.usage_type.includes('VPN')) ||
+      (data.usage_type && data.usage_type.includes('DCH')) ||
+      (data.usage_type && data.usage_type.includes('SES'))
+    
+    console.log('[Precheck] VPN detected:', isProxy, 'Country:', data.country_code)
     
     return {
       isProxy: Boolean(isProxy),
       countryCode: (data.country_code || 'XX').toUpperCase(),
     }
   } catch (error) {
-    console.error('IP2Location lookup failed:', error)
+    console.error('[Precheck] IP2Location lookup failed:', error)
     return { isProxy: false, countryCode: 'XX', error: 'Lookup failed' }
   }
 }
