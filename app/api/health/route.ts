@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { isDatabaseConfigured } from '@/lib/db/mongodb'
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 /**
  * Health check endpoint
  * GET /api/health

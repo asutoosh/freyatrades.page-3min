@@ -5,6 +5,9 @@ import {
   incrementVPNAttempts 
 } from '@/lib/db/ip-store-db'
 
+// Force dynamic rendering (needed because we access request.headers)
+export const dynamic = 'force-dynamic'
+
 // Config from env
 const RESTRICTED_COUNTRIES = (process.env.RESTRICTED_COUNTRIES || 'IN')
   .split(',')

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
 /**
  * Debug endpoint - shows exactly what precheck sees
  * GET /api/debug/precheck
