@@ -11,7 +11,11 @@
 import { MongoClient, Db, Collection, Document } from 'mongodb'
 
 // Connection string from Azure Cosmos DB
-const MONGODB_URI = process.env.AZURE_COSMOS_CONNECTION_STRING || process.env.MONGODB_URI || ''
+// Support both naming conventions (with and without underscore)
+const MONGODB_URI = process.env.AZURE_COSMOS_CONNECTION_STRING || 
+                     process.env.AZURE_COSMOS_CONNECTIONSTRING || 
+                     process.env.MONGODB_URI || 
+                     ''
 const DB_NAME = process.env.AZURE_COSMOS_DB_NAME || 'freyatrades'
 
 // Validate configuration
