@@ -8,7 +8,7 @@
  * - 99.99% SLA
  */
 
-import { MongoClient, Db, Collection } from 'mongodb'
+import { MongoClient, Db, Collection, Document } from 'mongodb'
 
 // Connection string from Azure Cosmos DB
 const MONGODB_URI = process.env.AZURE_COSMOS_CONNECTION_STRING || process.env.MONGODB_URI || ''
@@ -74,7 +74,7 @@ export async function getDatabase(): Promise<Db> {
 /**
  * Get a collection
  */
-export async function getCollection<T extends Document>(
+export async function getCollection<T extends Document = Document>(
   collectionName: string
 ): Promise<Collection<T>> {
   const db = await getDatabase()
