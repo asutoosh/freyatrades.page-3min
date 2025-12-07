@@ -19,8 +19,12 @@ const MONGODB_URI = process.env.AZURE_COSMOS_CONNECTION_STRING ||
 const DB_NAME = process.env.AZURE_COSMOS_DB_NAME || 'freyatrades'
 
 // Validate configuration
-if (!MONGODB_URI && process.env.NODE_ENV === 'production') {
-  console.warn('⚠️ AZURE_COSMOS_CONNECTION_STRING not set - using in-memory fallback')
+if (!MONGODB_URI) {
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('⚠️ AZURE_COSMOS_CONNECTION_STRING not set - using in-memory fallback')
+  }
+} else {
+  console.log('✅ Database connection string found')
 }
 
 // Global client promise for connection reuse

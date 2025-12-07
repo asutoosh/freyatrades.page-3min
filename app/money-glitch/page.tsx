@@ -45,6 +45,9 @@ export default function MoneyGlitchPage() {
 
   // Check if preview already ended (via cookie detection)
   useEffect(() => {
+    // Only access localStorage on client side
+    if (typeof window === 'undefined') return
+    
     // Check local storage for onboarding completed
     const onboardingDone = localStorage.getItem('ft_onboarding_done')
     const previewEndedLocal = localStorage.getItem('ft_preview_ended')
