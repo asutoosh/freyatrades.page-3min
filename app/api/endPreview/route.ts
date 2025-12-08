@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { markPreviewUsed } from '@/lib/db/ip-store-db'
+import { markPreviewUsed, getIPRecord } from '@/lib/db/ip-store-db'
 
 // Get client IP from headers
 function getClientIP(req: NextRequest): string {
@@ -25,7 +25,13 @@ function getClientIP(req: NextRequest): string {
 export async function POST(req: NextRequest) {
   const ip = getClientIP(req)
   
-  // Mark preview as used for this IP in database
+  console.log('[EndPreview] Marking preview as ended for IP:', ip)
+  
+  // Get current record for logging
+  const record = await getIPRecord(ip)
+  console.log('[EndPreview] Time consumed before end:', record?.timeConsumed || 0, 'seconds')
+  
+  // Mark preview as used for this IP in database (sets timeConsumed to 180)
   await markPreviewUsed(ip)
   
   // Create response with cookie

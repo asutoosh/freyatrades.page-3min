@@ -11,6 +11,9 @@ export interface IPRecord {
   _id?: ObjectId
   ip: string
   previewUsed: boolean
+  timeConsumed: number // Total seconds consumed across all sessions
+  previewStartedAt: Date | null // When current/last preview session started
+  cookieSaved: boolean // Whether 30-second cookie was saved
   vpnAttempts: number
   vpnWindowEnd: Date | null
   firstSeen: Date
@@ -52,6 +55,9 @@ export async function createIPRecord(
   const record: IPRecord = {
     ip,
     previewUsed: false,
+    timeConsumed: 0,
+    previewStartedAt: null,
+    cookieSaved: false,
     vpnAttempts: 0,
     vpnWindowEnd: null,
     firstSeen: new Date(),
@@ -119,11 +125,15 @@ export async function markPreviewUsed(ip: string): Promise<void> {
     const existing = memoryStore.get(ip)
     if (existing) {
       existing.previewUsed = true
+      existing.timeConsumed = 180 // Full 3 minutes
       existing.lastSeen = new Date()
     } else {
       memoryStore.set(ip, {
         ip,
         previewUsed: true,
+        timeConsumed: 180,
+        previewStartedAt: null,
+        cookieSaved: true,
         vpnAttempts: 0,
         vpnWindowEnd: null,
         firstSeen: new Date(),
@@ -138,9 +148,15 @@ export async function markPreviewUsed(ip: string): Promise<void> {
     await collection.updateOne(
       { ip },
       {
-        $set: { previewUsed: true, lastSeen: new Date() },
+        $set: { 
+          previewUsed: true, 
+          timeConsumed: 180,
+          lastSeen: new Date() 
+        },
         $setOnInsert: {
           firstSeen: new Date(),
+          previewStartedAt: null,
+          cookieSaved: true,
           vpnAttempts: 0,
           vpnWindowEnd: null,
         }
@@ -153,7 +169,139 @@ export async function markPreviewUsed(ip: string): Promise<void> {
     const existing = memoryStore.get(ip)
     if (existing) {
       existing.previewUsed = true
+      existing.timeConsumed = 180
     }
+  }
+}
+
+/**
+ * Start a preview session - records when user starts viewing
+ */
+export async function startPreviewSession(ip: string): Promise<void> {
+  const now = new Date()
+  
+  if (!isDatabaseConfigured()) {
+    const existing = memoryStore.get(ip)
+    if (existing) {
+      existing.previewStartedAt = now
+      existing.lastSeen = now
+    }
+    return
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    await collection.updateOne(
+      { ip },
+      {
+        $set: { 
+          previewStartedAt: now,
+          lastSeen: now 
+        }
+      }
+    )
+  } catch (error) {
+    console.error('Error starting preview session:', error)
+  }
+}
+
+/**
+ * Save at 30 seconds - marks cookie saved and updates time consumed
+ * Called when user has watched for 30 seconds
+ */
+export async function saveAt30Seconds(ip: string, secondsWatched: number): Promise<{ success: boolean; shouldSetCookie: boolean }> {
+  const now = new Date()
+  
+  if (!isDatabaseConfigured()) {
+    const existing = memoryStore.get(ip)
+    if (existing) {
+      // Only save if not already saved
+      if (!existing.cookieSaved) {
+        existing.cookieSaved = true
+        existing.timeConsumed = (existing.timeConsumed || 0) + secondsWatched
+        existing.lastSeen = now
+        return { success: true, shouldSetCookie: true }
+      }
+      // Already saved, just update time
+      existing.timeConsumed = (existing.timeConsumed || 0) + secondsWatched
+      existing.lastSeen = now
+      return { success: true, shouldSetCookie: false }
+    }
+    return { success: false, shouldSetCookie: false }
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    
+    // Check current state
+    const record = await collection.findOne({ ip })
+    const alreadySaved = record?.cookieSaved || false
+    
+    await collection.updateOne(
+      { ip },
+      {
+        $set: { 
+          cookieSaved: true,
+          lastSeen: now 
+        },
+        $inc: {
+          timeConsumed: secondsWatched
+        }
+      }
+    )
+    
+    return { success: true, shouldSetCookie: !alreadySaved }
+  } catch (error) {
+    console.error('Error saving at 30 seconds:', error)
+    return { success: false, shouldSetCookie: false }
+  }
+}
+
+/**
+ * Update time consumed for an IP
+ */
+export async function updateTimeConsumed(ip: string, additionalSeconds: number): Promise<void> {
+  const now = new Date()
+  
+  if (!isDatabaseConfigured()) {
+    const existing = memoryStore.get(ip)
+    if (existing) {
+      existing.timeConsumed = (existing.timeConsumed || 0) + additionalSeconds
+      existing.lastSeen = now
+    }
+    return
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    await collection.updateOne(
+      { ip },
+      {
+        $inc: { timeConsumed: additionalSeconds },
+        $set: { lastSeen: now }
+      }
+    )
+  } catch (error) {
+    console.error('Error updating time consumed:', error)
+  }
+}
+
+/**
+ * Get time consumed for an IP
+ */
+export async function getTimeConsumed(ip: string): Promise<number> {
+  if (!isDatabaseConfigured()) {
+    const existing = memoryStore.get(ip)
+    return existing?.timeConsumed || 0
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    const record = await collection.findOne({ ip })
+    return record?.timeConsumed || 0
+  } catch (error) {
+    console.error('Error getting time consumed:', error)
+    return 0
   }
 }
 
@@ -176,6 +324,9 @@ export async function incrementVPNAttempts(
       record = {
         ip,
         previewUsed: false,
+        timeConsumed: 0,
+        previewStartedAt: null,
+        cookieSaved: false,
         vpnAttempts: 1,
         vpnWindowEnd: newWindowEnd,
         firstSeen: now,
@@ -216,6 +367,9 @@ export async function incrementVPNAttempts(
           },
           $setOnInsert: {
             previewUsed: false,
+            timeConsumed: 0,
+            previewStartedAt: null,
+            cookieSaved: false,
             firstSeen: now,
           }
         },

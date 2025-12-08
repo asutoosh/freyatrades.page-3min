@@ -25,6 +25,7 @@ export interface PrecheckResponse {
   status: 'ok' | 'blocked'
   reason?: BlockReason
   previewDuration?: number
+  timeConsumed?: number
 }
 
 export interface Signal {

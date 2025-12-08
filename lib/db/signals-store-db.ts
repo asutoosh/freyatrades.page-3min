@@ -1,6 +1,8 @@
 /**
  * Signals Store - Azure Cosmos DB Implementation
  * Stores trading signals from Telegram bot
+ * 
+ * NO DUMMY/SAMPLE SIGNALS - only real signals from the bot
  */
 
 import { getCollection, isDatabaseConfigured, COLLECTIONS } from './mongodb'
@@ -30,137 +32,9 @@ export interface StoredSignal {
   createdAt: Date
 }
 
-// In-memory fallback
+// In-memory fallback (no sample data)
 const memoryStore: StoredSignal[] = []
 const MAX_MEMORY_SIGNALS = 100
-
-// Initialize with sample data
-let initialized = false
-
-/**
- * Initialize sample signals (for demo)
- */
-async function initializeSampleSignals(): Promise<void> {
-  if (initialized) return
-  initialized = true
-
-  const sampleSignals: Omit<StoredSignal, '_id' | 'createdAt'>[] = [
-    {
-      id: 'sample_1',
-      type: 'signal',
-      script: 'USOUSD',
-      position: 'BUY',
-      entryPrice: '60.244',
-      tp1: '60.490',
-      tp2: '60.653',
-      tp3: '60.899',
-      tp4: '61.227',
-      stopLoss: '59.835',
-      timestamp: new Date(Date.now() - 1000 * 60 * 30),
-      color: 'default',
-    },
-    {
-      id: 'sample_2',
-      type: 'signal',
-      script: 'DJ30',
-      position: 'BUY',
-      entryPrice: '48058.68',
-      tp1: '48174.43',
-      tp2: '48251.60',
-      tp3: '48367.35',
-      tp4: '48521.69',
-      stopLoss: '47965.76',
-      timestamp: new Date(Date.now() - 1000 * 60 * 45),
-      color: 'default',
-    },
-    {
-      id: 'sample_3',
-      type: 'update',
-      script: 'DJ30',
-      updateType: 'tp',
-      tpLevel: 4,
-      hitPrice: '48133.32',
-      signalDirection: 'Long',
-      timestamp: new Date(Date.now() - 1000 * 60 * 15),
-      color: 'green',
-    },
-    {
-      id: 'sample_4',
-      type: 'signal',
-      script: 'BTCUSD',
-      position: 'BUY',
-      entryPrice: '90827.56',
-      tp1: '91528.57',
-      tp2: '91995.90',
-      tp3: '92696.91',
-      tp4: '93631.58',
-      stopLoss: '89659.22',
-      timestamp: new Date(Date.now() - 1000 * 60 * 10),
-      color: 'default',
-    },
-    {
-      id: 'sample_5',
-      type: 'signal',
-      script: 'XAUUSD',
-      position: 'SELL',
-      entryPrice: '4236.36',
-      tp1: '4228.70',
-      tp2: '4223.59',
-      tp3: '4215.93',
-      tp4: '4205.72',
-      stopLoss: '4249.13',
-      timestamp: new Date(Date.now() - 1000 * 60 * 5),
-      color: 'default',
-    },
-    {
-      id: 'sample_6',
-      type: 'update',
-      script: 'XAUUSD',
-      updateType: 'sl',
-      hitPrice: '4249.13',
-      signalDirection: 'Long',
-      timestamp: new Date(Date.now() - 1000 * 60 * 2),
-      color: 'red',
-    },
-    {
-      id: 'sample_7',
-      type: 'update',
-      script: 'NAS100',
-      updateType: 'tp',
-      tpLevel: 3,
-      hitPrice: '25822.02',
-      signalDirection: 'Long',
-      timestamp: new Date(Date.now() - 1000 * 60 * 1),
-      color: 'green',
-    },
-  ]
-
-  // Add to memory store
-  if (memoryStore.length === 0) {
-    sampleSignals.forEach(signal => {
-      memoryStore.push({
-        ...signal,
-        createdAt: signal.timestamp,
-      })
-    })
-  }
-
-  // Add to database if configured and empty
-  if (isDatabaseConfigured()) {
-    try {
-      const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
-      const count = await collection.countDocuments()
-      if (count === 0) {
-        await collection.insertMany(
-          sampleSignals.map(s => ({ ...s, createdAt: s.timestamp })) as any[]
-        )
-        console.log('📊 Initialized sample signals in database')
-      }
-    } catch (error) {
-      console.error('Error initializing sample signals:', error)
-    }
-  }
-}
 
 /**
  * Add a new signal
@@ -190,13 +64,13 @@ export async function addSignal(signal: Omit<StoredSignal, '_id' | 'createdAt'>)
 }
 
 /**
- * Get signals (newest first)
+ * Get signals (newest first) with pagination
+ * Returns empty array if no real signals exist
  */
-export async function getSignals(limit: number = 30): Promise<StoredSignal[]> {
-  await initializeSampleSignals()
-
+export async function getSignals(limit: number = 100, skip: number = 0): Promise<StoredSignal[]> {
   if (!isDatabaseConfigured()) {
-    return memoryStore.slice(0, limit).map(s => ({
+    // Return memory store (empty if no signals ingested)
+    return memoryStore.slice(skip, skip + limit).map(s => ({
       ...s,
       timestamp: s.timestamp instanceof Date ? s.timestamp : new Date(s.timestamp),
     }))
@@ -207,6 +81,7 @@ export async function getSignals(limit: number = 30): Promise<StoredSignal[]> {
     const signals = await collection
       .find()
       .sort({ timestamp: -1 })
+      .skip(skip)
       .limit(limit)
       .toArray()
     
@@ -216,8 +91,25 @@ export async function getSignals(limit: number = 30): Promise<StoredSignal[]> {
     }))
   } catch (error) {
     console.error('Error getting signals from database:', error)
-    // Fallback to memory
-    return memoryStore.slice(0, limit)
+    // Fallback to memory (may be empty)
+    return memoryStore.slice(skip, skip + limit)
+  }
+}
+
+/**
+ * Get total signal count
+ */
+export async function getSignalCount(): Promise<number> {
+  if (!isDatabaseConfigured()) {
+    return memoryStore.length
+  }
+
+  try {
+    const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
+    return await collection.countDocuments()
+  } catch (error) {
+    console.error('Error getting signal count:', error)
+    return memoryStore.length
   }
 }
 
@@ -228,8 +120,6 @@ export async function getSignalsByScript(
   script: string,
   limit: number = 10
 ): Promise<StoredSignal[]> {
-  await initializeSampleSignals()
-
   if (!isDatabaseConfigured()) {
     return memoryStore
       .filter(s => s.script.toUpperCase() === script.toUpperCase())
@@ -255,8 +145,6 @@ export async function getSignalsByScript(
  * Get only new signals (not updates)
  */
 export async function getNewSignalsOnly(limit: number = 10): Promise<StoredSignal[]> {
-  await initializeSampleSignals()
-
   if (!isDatabaseConfigured()) {
     return memoryStore.filter(s => s.type === 'signal').slice(0, limit)
   }
@@ -284,8 +172,6 @@ export async function getSignalStats(): Promise<{
   slUpdates: number
   byScript: Record<string, number>
 }> {
-  await initializeSampleSignals()
-
   if (!isDatabaseConfigured()) {
     const byScript: Record<string, number> = {}
     memoryStore.forEach(s => {
@@ -367,7 +253,6 @@ export async function deleteOldSignals(daysToKeep: number = 7): Promise<number> 
  */
 export async function clearSignals(): Promise<void> {
   memoryStore.length = 0
-  initialized = false
 
   if (isDatabaseConfigured()) {
     try {
@@ -378,4 +263,3 @@ export async function clearSignals(): Promise<void> {
     }
   }
 }
-

@@ -35,45 +35,6 @@ export const SECTIONS: { id: SectionKey; label: string; icon: string; subtitle: 
   { id: 'faq', label: 'FAQ', icon: '❓', subtitle: 'Common questions' },
 ]
 
-export const MOCK_SIGNALS = [
-  {
-    id: '1',
-    script: 'USOUSD',
-    position: 'BUY' as const,
-    entryPrice: '60.244',
-    tp1: '60.490',
-    tp2: '60.653',
-    tp3: '60.899',
-    tp4: '61.227',
-    stopLoss: '59.835',
-    createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-  },
-  {
-    id: '2',
-    script: 'DJI30',
-    position: 'BUY' as const,
-    entryPrice: '48058.68',
-    tp1: '48174.43',
-    tp2: '48251.60',
-    tp3: '48367.35',
-    tp4: '48521.69',
-    stopLoss: '47965.76',
-    createdAt: new Date(Date.now() - 1000 * 60 * 48).toISOString(),
-  },
-  {
-    id: '3',
-    script: 'XAUUSD',
-    position: 'BUY' as const,
-    entryPrice: '4197.78',
-    tp1: '4201.47',
-    tp2: '4203.94',
-    tp3: '4207.63',
-    tp4: '4212.56',
-    stopLoss: '4191.62',
-    createdAt: new Date(Date.now() - 1000 * 60 * 18).toISOString(),
-  },
-]
-
 export const EXTERNAL_LINKS = {
   telegram: process.env.NEXT_PUBLIC_TRIAL_TELEGRAM_URL || 'https://t.me/your_preview_hub',
   whop: process.env.NEXT_PUBLIC_TRIAL_WHOP_URL || 'https://whop.com/your-whop-product',

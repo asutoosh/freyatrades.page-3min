@@ -9,7 +9,11 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(req: NextRequest) {
   // Get config
-  const IP2LOCATION_API_KEY = process.env.IP2LOCATION_API_KEY || ''
+  const IP2LOCATION_API_KEYS = (process.env.IP2LOCATION_API_KEY || '')
+    .split(',')
+    .map(k => k.trim())
+    .filter(Boolean)
+  
   const RESTRICTED_COUNTRIES = (process.env.RESTRICTED_COUNTRIES || 'IN')
     .split(',')
     .map(c => c.trim().toUpperCase())
@@ -19,32 +23,75 @@ export async function GET(req: NextRequest) {
   const forwarded = req.headers.get('x-forwarded-for')
   const ip = forwarded ? forwarded.split(',')[0].trim() : 'unknown'
   
-  // Call IP2Location API
+  // Try all API keys
   let ip2locationResponse: any = null
   let isProxy = false
   let countryCode = 'XX'
   let error: string | null = null
+  let apiKeyUsed: string | null = null
+  let allKeysTested: Array<{ key: string; status: string; error?: string }> = []
   
-  if (IP2LOCATION_API_KEY && ip !== 'unknown') {
-    try {
-      const url = `https://api.ip2location.io/?key=${IP2LOCATION_API_KEY}&ip=${ip}&format=json`
-      const res = await fetch(url, { cache: 'no-store' })
+  if (IP2LOCATION_API_KEYS.length === 0) {
+    error = 'No IP2LOCATION_API_KEY configured'
+  } else {
+    // Test all keys
+    for (let i = 0; i < IP2LOCATION_API_KEYS.length; i++) {
+      const apiKey = IP2LOCATION_API_KEYS[i]
       
-      if (res.ok) {
-        ip2locationResponse = await res.json()
+      try {
+        const url = `https://api.ip2location.io/?key=${apiKey}&ip=${ip}&format=json`
+        const res = await fetch(url, { cache: 'no-store' })
         
-        // Check ONLY for VPN (proxy is allowed)
-        // Only check proxy.is_vpn field - ignore all other proxy types
-        isProxy = ip2locationResponse.proxy?.is_vpn === true || ip2locationResponse.proxy?.is_vpn === 1
-        countryCode = (ip2locationResponse.country_code || 'XX').toUpperCase()
-      } else {
-        error = `API returned ${res.status}`
+        if (res.ok) {
+          const data = await res.json()
+          
+          if (data.error) {
+            allKeysTested.push({
+              key: apiKey.substring(0, 8) + '...',
+              status: 'error',
+              error: data.error.error_message || 'API error'
+            })
+            continue
+          }
+          
+          // Success - use this response
+          ip2locationResponse = data
+          apiKeyUsed = apiKey.substring(0, 8) + '...'
+          
+          // Check ONLY for VPN (proxy is allowed)
+          // Only check proxy.is_vpn field - ignore all other proxy types
+          isProxy = data.proxy?.is_vpn === true || data.proxy?.is_vpn === 1
+          countryCode = (data.country_code || 'XX').toUpperCase()
+          
+          allKeysTested.push({
+            key: apiKey.substring(0, 8) + '...',
+            status: 'success'
+          })
+          break // Stop after first success
+        } else {
+          allKeysTested.push({
+            key: apiKey.substring(0, 8) + '...',
+            status: 'error',
+            error: `HTTP ${res.status}`
+          })
+          
+          // Continue to next key unless last one
+          if (i === IP2LOCATION_API_KEYS.length - 1) {
+            error = `All keys failed (last: ${res.status})`
+          }
+        }
+      } catch (e: any) {
+        allKeysTested.push({
+          key: apiKey.substring(0, 8) + '...',
+          status: 'error',
+          error: e.message
+        })
+        
+        if (i === IP2LOCATION_API_KEYS.length - 1) {
+          error = e.message
+        }
       }
-    } catch (e: any) {
-      error = e.message
     }
-  } else if (!IP2LOCATION_API_KEY) {
-    error = 'IP2LOCATION_API_KEY not configured'
   }
 
   // Check if would be blocked
@@ -56,9 +103,15 @@ export async function GET(req: NextRequest) {
     // Your info
     yourIP: ip,
     
+    // API keys status
+    apiKeys: {
+      total: IP2LOCATION_API_KEYS.length,
+      tested: allKeysTested,
+      used: apiKeyUsed,
+    },
+    
     // IP2Location result
     ip2location: {
-      apiKeyConfigured: !!IP2LOCATION_API_KEY,
       response: ip2locationResponse,
       error: error,
     },
@@ -91,6 +144,9 @@ export async function GET(req: NextRequest) {
         : wouldBeBlockedCountry 
           ? `❌ BLOCKED: Country ${countryCode} is restricted`
           : '✅ PASSED: Would show preview'
-    }
+    },
+    
+    // Time tracking info
+    note: 'Time consumed tracking: IPs are tracked for viewing time. After 60 seconds, users are blocked. Cookie is saved after 30 seconds.'
   })
 }

@@ -1,9 +1,21 @@
-import { NextResponse } from 'next/server'
-import { getSignals } from '@/lib/db/signals-store-db'
+import { NextRequest, NextResponse } from 'next/server'
+import { getSignals, getSignalCount } from '@/lib/db/signals-store-db'
+import { isDatabaseConfigured } from '@/lib/db/mongodb'
 
-export async function GET() {
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
+
+export async function GET(req: NextRequest) {
   try {
-    const signals = await getSignals(30)
+    const { searchParams } = new URL(req.url)
+    
+    // Pagination params
+    const limit = Math.min(Number(searchParams.get('limit') || '100'), 200) // Max 200
+    const skip = Number(searchParams.get('skip') || '0')
+    
+    const dbConfigured = isDatabaseConfigured()
+    const signals = await getSignals(limit, skip)
+    const totalCount = await getSignalCount()
 
     // Format timestamps as ISO strings for JSON
     const formattedSignals = signals.map(signal => ({
@@ -13,18 +25,37 @@ export async function GET() {
         : signal.timestamp,
     }))
 
+    // Calculate if there are more signals to load
+    const hasMore = skip + formattedSignals.length < totalCount
+
     return NextResponse.json({
       signals: formattedSignals,
       count: formattedSignals.length,
+      totalCount,
+      hasMore,
+      skip,
+      limit,
       lastUpdated: new Date().toISOString(),
+      status: {
+        databaseConnected: dbConfigured,
+        hasSignals: formattedSignals.length > 0,
+      }
     })
   } catch (error) {
     console.error('Error fetching signals:', error)
     return NextResponse.json({
       signals: [],
       count: 0,
+      totalCount: 0,
+      hasMore: false,
+      skip: 0,
+      limit: 100,
       lastUpdated: new Date().toISOString(),
-      error: 'Failed to fetch signals',
-    })
+      error: 'Failed to fetch signals from database',
+      status: {
+        databaseConnected: false,
+        hasSignals: false,
+      }
+    }, { status: 500 })
   }
 }
