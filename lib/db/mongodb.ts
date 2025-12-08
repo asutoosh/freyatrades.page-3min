@@ -21,7 +21,13 @@ const DB_NAME = process.env.AZURE_COSMOS_DB_NAME || 'freyatrades'
 // Validate configuration
 if (!MONGODB_URI) {
   if (process.env.NODE_ENV === 'production') {
-    console.warn('⚠️ AZURE_COSMOS_CONNECTION_STRING not set - using in-memory fallback')
+    // CRITICAL: Production requires a database - fail fast
+    throw new Error(
+      'FATAL: Database connection string required in production. ' +
+      'Set AZURE_COSMOS_CONNECTION_STRING or MONGODB_URI environment variable.'
+    )
+  } else {
+    console.warn('⚠️ Database not configured - using in-memory fallback (DEVELOPMENT ONLY)')
   }
 } else {
   console.log('✅ Database connection string found')
