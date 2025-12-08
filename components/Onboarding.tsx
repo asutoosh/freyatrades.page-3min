@@ -14,24 +14,25 @@ export default function Onboarding({ step, onNext, onComplete }: OnboardingProps
   const isLastStep = step === ONBOARDING_STEPS.length - 1
 
   return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key={step}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4"
-      >
+    <motion.div
+      key="onboarding"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4"
+    >
         {/* Background pattern */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-yellow-500/5 rounded-full blur-3xl" />
           <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-yellow-500/5 rounded-full blur-3xl" />
         </div>
 
-        <motion.div
-          initial={{ scale: 0.9, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.9, y: -20 }}
+        <AnimatePresence mode="wait">
+          <motion.div
+          key={step}
+          initial={{ scale: 0.9, y: 20, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.9, y: -20, opacity: 0 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
           className="relative max-w-lg w-full"
         >
@@ -122,8 +123,8 @@ export default function Onboarding({ step, onNext, onComplete }: OnboardingProps
             Step {step + 1} of {ONBOARDING_STEPS.length}
           </div>
         </motion.div>
-      </motion.div>
-    </AnimatePresence>
+      </AnimatePresence>
+    </motion.div>
   )
 }
 
