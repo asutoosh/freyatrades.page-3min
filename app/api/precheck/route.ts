@@ -77,11 +77,54 @@ async function lookupIP(ip: string): Promise<{
     const data = await res.json()
     console.log('[Precheck] IP2Location response:', JSON.stringify(data))
     
-    // Check is_proxy field (boolean or number)
-    const isProxy = data.is_proxy === true || data.is_proxy === 1
+    // Check proxy/VPN detection using ALL available fields
+    // Top-level check
+    const topLevelProxy = data.is_proxy === true || data.is_proxy === 1
+    
+    // Nested proxy object check (more detailed)
+    let proxyDetails = {
+      isVPN: false,
+      isTor: false,
+      isResidentialProxy: false,
+      isDataCenter: false,
+      isPublicProxy: false,
+      isWebProxy: false,
+      proxyType: null,
+    }
+    
+    if (data.proxy) {
+      proxyDetails = {
+        isVPN: data.proxy.is_vpn === true || data.proxy.is_vpn === 1,
+        isTor: data.proxy.is_tor === true || data.proxy.is_tor === 1,
+        isResidentialProxy: data.proxy.is_residential_proxy === true || data.proxy.is_residential_proxy === 1,
+        isDataCenter: data.proxy.is_data_center === true || data.proxy.is_data_center === 1,
+        isPublicProxy: data.proxy.is_public_proxy === true || data.proxy.is_public_proxy === 1,
+        isWebProxy: data.proxy.is_web_proxy === true || data.proxy.is_web_proxy === 1,
+        proxyType: data.proxy.proxy_type || null,
+      }
+    }
+    
+    // Consider it a proxy if:
+    // 1. Top-level is_proxy is true, OR
+    // 2. Any of the proxy details indicate proxy/VPN
+    const isProxy = topLevelProxy || 
+                    proxyDetails.isVPN || 
+                    proxyDetails.isTor || 
+                    proxyDetails.isResidentialProxy ||
+                    proxyDetails.isDataCenter ||
+                    proxyDetails.isPublicProxy ||
+                    proxyDetails.isWebProxy ||
+                    (proxyDetails.proxyType && proxyDetails.proxyType !== '-')
+    
     const countryCode = (data.country_code || 'XX').toUpperCase()
     
-    console.log('[Precheck] Result - isProxy:', isProxy, 'country:', countryCode)
+    console.log('[Precheck] Proxy detection:')
+    console.log('  - is_proxy (top-level):', topLevelProxy)
+    console.log('  - proxy.is_vpn:', proxyDetails.isVPN)
+    console.log('  - proxy.is_residential_proxy:', proxyDetails.isResidentialProxy)
+    console.log('  - proxy.proxy_type:', proxyDetails.proxyType)
+    console.log('  - Final isProxy:', isProxy)
+    console.log('  - Country:', countryCode)
     
     return { isProxy, countryCode }
   } catch (error) {
