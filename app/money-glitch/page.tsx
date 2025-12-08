@@ -108,36 +108,27 @@ export default function MoneyGlitchPage() {
   }, [])
 
   // Handle loading screen completion (3 seconds minimum)
-  const handleLoadingComplete = useCallback(() => {
-    // If precheck hasn't completed yet, wait for it
-    if (!precheckResult) {
-      console.log('[Loading] Waiting for precheck result...')
-      // Check again after a short delay
-      setTimeout(() => {
-        handleLoadingComplete()
-      }, 100)
-      return
-    }
+  // This function processes the precheck result - only call when precheckResult is ready
+  const processPrecheck = useCallback((result: PrecheckResponse) => {
+    console.log('[Loading] Processing precheck result:', result)
     
-    console.log('[Loading] Precheck result received:', precheckResult)
-    
-    if (precheckResult.status === 'blocked') {
-      setBlockReason(precheckResult.reason || 'error')
+    if (result.status === 'blocked') {
+      setBlockReason(result.reason || 'error')
       setAppState('blocked')
-    } else if (precheckResult.status === 'ok') {
+    } else if (result.status === 'ok') {
       // Set preview duration from API (already accounts for previously consumed time)
-      const duration = precheckResult.previewDuration || 180
+      const duration = result.previewDuration || 180
       setPreviewDuration(duration)
       setTimeLeft(duration)
       setPreviewStartTime(Date.now())
       setAppState('preview_active')
     } else {
       // Unknown status - treat as error
-      console.error('[Loading] Unknown precheck status:', precheckResult)
+      console.error('[Loading] Unknown precheck status:', result)
       setBlockReason('error')
       setAppState('blocked')
     }
-  }, [precheckResult])
+  }, [])
 
   // When entering loading state, start the precheck
   useEffect(() => {
@@ -181,29 +172,39 @@ export default function MoneyGlitchPage() {
   }, [appState, runPrecheck])
 
   // Monitor loading completion (3 seconds + precheck done)
+  // This effect runs when either the timer needs checking OR when precheckResult arrives
   useEffect(() => {
     if (appState !== 'loading' || !loadingStartTime) return
     
-    const checkCompletion = () => {
-      const elapsed = Date.now() - loadingStartTime
-      const minElapsed = elapsed >= 3000
-      const hasResult = precheckResult !== null
-      
-      // Only proceed if both minimum time passed AND precheck completed
-      if (minElapsed && hasResult) {
-        handleLoadingComplete()
-      } else if (minElapsed && !hasResult) {
-        // Minimum time passed but precheck still loading - wait a bit more
-        console.log('[Loading] Minimum time passed, waiting for precheck...')
-        setTimeout(checkCompletion, 200)
-      } else {
-        // Still need to wait for minimum time
-        setTimeout(checkCompletion, 3000 - elapsed)
-      }
+    // If no precheck result yet, do nothing - effect will re-run when precheckResult changes
+    if (!precheckResult) {
+      console.log('[Loading] Waiting for precheck result...')
+      return
     }
     
-    checkCompletion()
-  }, [appState, loadingStartTime, precheckResult, handleLoadingComplete])
+    const elapsed = Date.now() - loadingStartTime
+    
+    // If minimum time not yet passed, schedule a check when it will be
+    if (elapsed < 3000) {
+      const remainingTime = 3000 - elapsed
+      console.log('[Loading] Waiting for minimum time, remaining:', remainingTime, 'ms')
+      
+      const timerId = setTimeout(() => {
+        // By this time, precheckResult is available (we checked above)
+        // Trigger state transition
+        if (precheckResult) {
+          processPrecheck(precheckResult)
+        }
+      }, remainingTime)
+      
+      return () => clearTimeout(timerId)
+    }
+    
+    // Both conditions met: minimum time passed AND we have precheckResult
+    console.log('[Loading] Both conditions met, processing precheck...')
+    processPrecheck(precheckResult)
+    
+  }, [appState, loadingStartTime, precheckResult, processPrecheck])
 
   // Countdown timer with 30-second save
   useEffect(() => {
@@ -301,7 +302,7 @@ export default function MoneyGlitchPage() {
         {appState === 'loading' && (
           <LoadingScreen
             key="loading"
-            onComplete={handleLoadingComplete}
+            onComplete={() => {}} // Loading completion handled by useEffect
             minimumDuration={3000}
           />
         )}
