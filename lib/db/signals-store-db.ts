@@ -66,6 +66,8 @@ export async function addSignal(signal: Omit<StoredSignal, '_id' | 'createdAt'>)
 /**
  * Get signals (newest first) with pagination
  * Returns empty array if no real signals exist
+ * 
+ * Note: Cosmos DB requires indexes for sorting, so we fetch all and sort in JS
  */
 export async function getSignals(limit: number = 100, skip: number = 0): Promise<StoredSignal[]> {
   if (!isDatabaseConfigured()) {
@@ -79,22 +81,25 @@ export async function getSignals(limit: number = 100, skip: number = 0): Promise
   try {
     const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
     
-    // Use aggregate pipeline for better Cosmos DB compatibility
-    const pipeline: any[] = [
-      { $sort: { createdAt: -1 } }, // Sort by createdAt (always a Date)
-    ]
+    // Cosmos DB doesn't have indexes for sorting, so fetch all and sort in JS
+    // For production with many signals, create indexes in Cosmos DB
+    const allSignals = await collection.find({}).toArray()
     
-    if (skip > 0) {
-      pipeline.push({ $skip: skip })
-    }
+    console.log(`[Signals] Fetched ${allSignals.length} total signals from DB`)
     
-    pipeline.push({ $limit: limit })
+    // Sort by createdAt descending (newest first) in JavaScript
+    const sorted = allSignals.sort((a, b) => {
+      const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt || 0)
+      const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt || 0)
+      return dateB.getTime() - dateA.getTime()
+    })
     
-    const signals = await collection.aggregate<StoredSignal>(pipeline).toArray()
+    // Apply pagination
+    const paginated = sorted.slice(skip, skip + limit)
     
-    console.log(`[Signals] Fetched ${signals.length} signals (skip=${skip}, limit=${limit})`)
+    console.log(`[Signals] Returning ${paginated.length} signals (skip=${skip}, limit=${limit})`)
     
-    return signals.map(s => ({
+    return paginated.map(s => ({
       ...s,
       timestamp: s.timestamp instanceof Date ? s.timestamp : new Date(s.timestamp || s.createdAt),
     }))
@@ -137,11 +142,14 @@ export async function getSignalsByScript(
 
   try {
     const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
-    return await collection
+    const signals = await collection
       .find({ script: script.toUpperCase() })
-      .sort({ timestamp: -1 })
-      .limit(limit)
       .toArray()
+    
+    // Sort in JS (Cosmos DB needs indexes for sort)
+    return signals
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, limit)
   } catch (error) {
     console.error('Error getting signals by script:', error)
     return memoryStore
@@ -160,11 +168,14 @@ export async function getNewSignalsOnly(limit: number = 10): Promise<StoredSigna
 
   try {
     const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
-    return await collection
+    const signals = await collection
       .find({ type: 'signal' })
-      .sort({ timestamp: -1 })
-      .limit(limit)
       .toArray()
+    
+    // Sort in JS (Cosmos DB needs indexes for sort)
+    return signals
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, limit)
   } catch (error) {
     console.error('Error getting new signals:', error)
     return memoryStore.filter(s => s.type === 'signal').slice(0, limit)

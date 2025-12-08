@@ -22,15 +22,19 @@ export async function GET() {
     // Try different queries to debug
     const countResult = await collection.countDocuments()
     
-    // Raw find without any transforms
-    const rawSignals = await collection.find({}).limit(10).toArray()
+    // Raw find without any transforms (no sort - Cosmos DB needs indexes for that)
+    const rawSignals = await collection.find({}).limit(20).toArray()
     
-    // Find with sort
-    const sortedSignals = await collection.find({}).sort({ timestamp: -1 }).limit(10).toArray()
+    // Sort in JavaScript instead (Cosmos DB doesn't have index for timestamp)
+    const sortedSignals = [...rawSignals].sort((a: any, b: any) => {
+      const dateA = new Date(a.createdAt || a.timestamp || 0)
+      const dateB = new Date(b.createdAt || b.timestamp || 0)
+      return dateB.getTime() - dateA.getTime()
+    }).slice(0, 10)
     
     // Find with explicit projection
     const projectedSignals = await collection.find({}, { 
-      projection: { id: 1, script: 1, type: 1, timestamp: 1, color: 1 } 
+      projection: { id: 1, script: 1, type: 1, timestamp: 1, color: 1, createdAt: 1 } 
     }).limit(10).toArray()
 
     return NextResponse.json({
