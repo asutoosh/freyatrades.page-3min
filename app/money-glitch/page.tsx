@@ -109,18 +109,33 @@ export default function MoneyGlitchPage() {
 
   // Handle loading screen completion (3 seconds minimum)
   const handleLoadingComplete = useCallback(() => {
-    if (!precheckResult) return
+    // If precheck hasn't completed yet, wait for it
+    if (!precheckResult) {
+      console.log('[Loading] Waiting for precheck result...')
+      // Check again after a short delay
+      setTimeout(() => {
+        handleLoadingComplete()
+      }, 100)
+      return
+    }
+    
+    console.log('[Loading] Precheck result received:', precheckResult)
     
     if (precheckResult.status === 'blocked') {
       setBlockReason(precheckResult.reason || 'error')
       setAppState('blocked')
-    } else {
+    } else if (precheckResult.status === 'ok') {
       // Set preview duration from API (already accounts for previously consumed time)
       const duration = precheckResult.previewDuration || 180
       setPreviewDuration(duration)
       setTimeLeft(duration)
       setPreviewStartTime(Date.now())
       setAppState('preview_active')
+    } else {
+      // Unknown status - treat as error
+      console.error('[Loading] Unknown precheck status:', precheckResult)
+      setBlockReason('error')
+      setAppState('blocked')
     }
   }, [precheckResult])
 
@@ -128,23 +143,61 @@ export default function MoneyGlitchPage() {
   useEffect(() => {
     if (appState === 'loading') {
       setLoadingStartTime(Date.now())
+      setPrecheckResult(null) // Reset previous result
       
-      runPrecheck().then((result) => {
-        setPrecheckResult(result)
-      })
+      let precheckCompleted = false
+      
+      // Set a timeout fallback in case precheck fails (10 seconds max wait)
+      const timeoutId = setTimeout(() => {
+        if (!precheckCompleted) {
+          console.error('[Loading] Precheck timeout - treating as error')
+          precheckCompleted = true
+          setPrecheckResult({ status: 'blocked', reason: 'error' })
+        }
+      }, 10000)
+      
+      runPrecheck()
+        .then((result) => {
+          if (!precheckCompleted) {
+            precheckCompleted = true
+            clearTimeout(timeoutId)
+            setPrecheckResult(result)
+          }
+        })
+        .catch((error) => {
+          if (!precheckCompleted) {
+            precheckCompleted = true
+            clearTimeout(timeoutId)
+            console.error('[Loading] Precheck failed:', error)
+            setPrecheckResult({ status: 'blocked', reason: 'error' })
+          }
+        })
+      
+      return () => {
+        clearTimeout(timeoutId)
+        precheckCompleted = true
+      }
     }
   }, [appState, runPrecheck])
 
   // Monitor loading completion (3 seconds + precheck done)
   useEffect(() => {
-    if (appState !== 'loading' || !loadingStartTime || !precheckResult) return
+    if (appState !== 'loading' || !loadingStartTime) return
     
     const checkCompletion = () => {
       const elapsed = Date.now() - loadingStartTime
-      if (elapsed >= 3000) {
+      const minElapsed = elapsed >= 3000
+      const hasResult = precheckResult !== null
+      
+      // Only proceed if both minimum time passed AND precheck completed
+      if (minElapsed && hasResult) {
         handleLoadingComplete()
+      } else if (minElapsed && !hasResult) {
+        // Minimum time passed but precheck still loading - wait a bit more
+        console.log('[Loading] Minimum time passed, waiting for precheck...')
+        setTimeout(checkCompletion, 200)
       } else {
-        // Wait until 3 seconds pass
+        // Still need to wait for minimum time
         setTimeout(checkCompletion, 3000 - elapsed)
       }
     }
