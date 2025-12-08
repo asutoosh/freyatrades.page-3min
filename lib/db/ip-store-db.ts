@@ -433,6 +433,30 @@ export async function getIPStats(): Promise<{
 }
 
 /**
+ * Delete a specific IP record (for admin/testing purposes)
+ */
+export async function deleteIPRecord(ip: string): Promise<boolean> {
+  console.log(`[IP Store] Deleting IP record for: ${ip}`)
+  
+  if (!isDatabaseConfigured()) {
+    const existed = memoryStore.has(ip)
+    memoryStore.delete(ip)
+    console.log(`[IP Store] Deleted from memory: ${existed}`)
+    return existed
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    const result = await collection.deleteOne({ ip })
+    console.log(`[IP Store] Deleted from database: ${result.deletedCount > 0}`)
+    return result.deletedCount > 0
+  } catch (error) {
+    console.error('[IP Store] Error deleting IP record:', error)
+    return false
+  }
+}
+
+/**
  * Clean up old records (run periodically)
  */
 export async function cleanupOldRecords(maxAgeDays: number = 30): Promise<number> {
