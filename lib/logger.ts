@@ -24,8 +24,15 @@ const SENSITIVE_PATTERNS = [
   /password/i,
   /secret/i,
   /auth/i,
+  /authorization/i,
+  /bearer/i,
+  /jwt/i,
+  /session/i,
+  /cookie/i,
   /credential/i,
   /connection[_-]?string/i,
+  /private[_-]?key/i,
+  /access[_-]?key/i,
 ]
 
 /**

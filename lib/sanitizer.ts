@@ -105,15 +105,20 @@ export function sanitizeURL(url: string, allowedDomains?: string[]): string {
 
 /**
  * Sanitize numeric input
- * Returns 0 if invalid
+ * Returns default value if invalid
  */
 export function sanitizeNumber(
-  input: any,
+  input: string | number | unknown,
   options?: { min?: number; max?: number; defaultValue?: number }
 ): number {
+  // Type guard: check if input is string or number
+  if (typeof input !== 'string' && typeof input !== 'number') {
+    return options?.defaultValue ?? 0
+  }
+  
   const num = Number(input)
   
-  if (isNaN(num)) {
+  if (isNaN(num) || !isFinite(num)) {
     return options?.defaultValue ?? 0
   }
   

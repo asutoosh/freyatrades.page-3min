@@ -9,10 +9,16 @@
 
 import { Component, ReactNode } from 'react'
 
+interface ReactErrorInfo {
+  componentStack: string
+  errorBoundary?: string
+  errorBoundaryStack?: string
+}
+
 interface Props {
   children: ReactNode
   fallback?: ReactNode
-  onError?: (error: Error, errorInfo: any) => void
+  onError?: (error: Error, errorInfo: ReactErrorInfo) => void
 }
 
 interface State {
@@ -30,7 +36,7 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error, errorInfo: any) {
+  componentDidCatch(error: Error, errorInfo: ReactErrorInfo) {
     // Log error to console in development
     if (process.env.NODE_ENV === 'development') {
       console.error('Error Boundary caught an error:', error, errorInfo)
