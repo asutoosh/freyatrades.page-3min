@@ -19,9 +19,17 @@ export async function GET(req: NextRequest) {
     .map(c => c.trim().toUpperCase())
     .filter(Boolean)
 
-  // Get client IP
+  // Get client IP and strip any port
+  const stripPort = (raw: string | null): string | null => {
+    if (!raw) return null
+    const withoutPort = raw.replace(/:(\d+)$/, '')
+    if (withoutPort.startsWith('[') && withoutPort.endsWith(']')) {
+      return withoutPort.slice(1, -1)
+    }
+    return withoutPort
+  }
   const forwarded = req.headers.get('x-forwarded-for')
-  const ip = forwarded ? forwarded.split(',')[0].trim() : 'unknown'
+  const ip = forwarded ? (stripPort(forwarded.split(',')[0].trim()) || 'unknown') : 'unknown'
   
   // Try all API keys
   let ip2locationResponse: any = null

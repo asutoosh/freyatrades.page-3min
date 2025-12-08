@@ -27,22 +27,32 @@ const IP2LOCATION_API_KEYS = (process.env.IP2LOCATION_API_KEY || '')
   .map(k => k.trim())
   .filter(Boolean)
 
-// Get client IP from headers
+// Get client IP from headers and strip any port suffix
 function getClientIP(req: NextRequest): string {
-  // Azure App Service uses x-forwarded-for
+  const stripPort = (raw: string | null): string | null => {
+    if (!raw) return null
+    // Remove trailing :port for IPv4 (e.g., 1.2.3.4:5678)
+    const withoutPort = raw.replace(/:(\d+)$/, '')
+    // Remove brackets for IPv6 with brackets
+    if (withoutPort.startsWith('[') && withoutPort.endsWith(']')) {
+      return withoutPort.slice(1, -1)
+    }
+    return withoutPort
+  }
+
   const forwarded = req.headers.get('x-forwarded-for')
   if (forwarded) {
-    return forwarded.split(',')[0].trim()
+    const first = forwarded.split(',')[0].trim()
+    const ip = stripPort(first)
+    if (ip) return ip
   }
   
-  // Alternative headers
-  const realIP = req.headers.get('x-real-ip')
-  if (realIP) return realIP.trim()
+  const realIP = stripPort(req.headers.get('x-real-ip'))
+  if (realIP) return realIP
   
-  const azureIP = req.headers.get('x-client-ip')
-  if (azureIP) return azureIP.trim()
+  const azureIP = stripPort(req.headers.get('x-client-ip'))
+  if (azureIP) return azureIP
   
-  // Fallback for development
   return '127.0.0.1'
 }
 
