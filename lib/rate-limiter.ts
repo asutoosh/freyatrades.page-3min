@@ -30,18 +30,65 @@ const rateLimitStore = new Map<string, RateLimitEntry>()
 
 // Clean up old entries periodically (every 5 minutes)
 const CLEANUP_INTERVAL = 5 * 60 * 1000
-let lastCleanup = Date.now()
+let cleanupTimer: NodeJS.Timeout | null = null
 
+/**
+ * Clean up expired rate limit entries
+ * Scheduled cleanup prevents memory leaks
+ */
 function cleanupOldEntries() {
   const now = Date.now()
-  if (now - lastCleanup < CLEANUP_INTERVAL) return
+  let cleaned = 0
   
-  lastCleanup = now
   for (const [key, entry] of rateLimitStore.entries()) {
     if (entry.resetAt < now) {
       rateLimitStore.delete(key)
+      cleaned++
     }
   }
+  
+  if (cleaned > 0) {
+    console.log(`[RateLimit] Cleaned ${cleaned} expired entries (${rateLimitStore.size} remaining)`)
+  }
+}
+
+/**
+ * Start scheduled cleanup timer
+ * Only runs in server environment (not during SSR)
+ */
+function startCleanupTimer() {
+  // Prevent multiple timers
+  if (cleanupTimer) return
+  
+  // Only run in server environment
+  if (typeof setInterval === 'undefined') return
+  
+  cleanupTimer = setInterval(() => {
+    cleanupOldEntries()
+  }, CLEANUP_INTERVAL)
+  
+  // Prevent timer from keeping Node.js process alive
+  if (cleanupTimer.unref) {
+    cleanupTimer.unref()
+  }
+  
+  console.log('[RateLimit] Cleanup timer started')
+}
+
+/**
+ * Stop cleanup timer (for graceful shutdown)
+ */
+export function stopCleanupTimer() {
+  if (cleanupTimer) {
+    clearInterval(cleanupTimer)
+    cleanupTimer = null
+    console.log('[RateLimit] Cleanup timer stopped')
+  }
+}
+
+// Start cleanup timer when module loads
+if (typeof setInterval !== 'undefined') {
+  startCleanupTimer()
 }
 
 /**

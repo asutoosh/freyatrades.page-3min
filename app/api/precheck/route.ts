@@ -6,6 +6,8 @@ import {
   startPreviewSession
 } from '@/lib/db/ip-store-db'
 import { applyRateLimit } from '@/lib/rate-limiter'
+import { getClientIP, getUserAgent, isLocalhost } from '@/lib/ip-utils'
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 
 // Force dynamic rendering (needed because we access request.headers)
 export const dynamic = 'force-dynamic'
@@ -28,50 +30,17 @@ const IP2LOCATION_API_KEYS = (process.env.IP2LOCATION_API_KEY || '')
   .map(k => k.trim())
   .filter(Boolean)
 
-// Get client IP from headers and strip any port suffix
-function getClientIP(req: NextRequest): string {
-  const stripPort = (raw: string | null): string | null => {
-    if (!raw) return null
-    // Remove trailing :port for IPv4 (e.g., 1.2.3.4:5678)
-    const withoutPort = raw.replace(/:(\d+)$/, '')
-    // Remove brackets for IPv6 with brackets
-    if (withoutPort.startsWith('[') && withoutPort.endsWith(']')) {
-      return withoutPort.slice(1, -1)
-    }
-    return withoutPort
-  }
-
-  const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded) {
-    const first = forwarded.split(',')[0].trim()
-    const ip = stripPort(first)
-    if (ip) return ip
-  }
-  
-  const realIP = stripPort(req.headers.get('x-real-ip'))
-  if (realIP) return realIP
-  
-  const azureIP = stripPort(req.headers.get('x-client-ip'))
-  if (azureIP) return azureIP
-  
-  return '127.0.0.1'
-}
-
-// Get user agent
-function getUserAgent(req: NextRequest): string {
-  return req.headers.get('user-agent') || 'Unknown'
-}
+import { fetchWithTimeout } from '@/lib/fetch-with-timeout'
 
 // Call IP2Location API with fallback to multiple keys
 // Returns isProxy=true ONLY if VPN detected (proxy is allowed)
 async function lookupIP(ip: string): Promise<{
   isProxy: boolean
   countryCode: string
-  apiKeyUsed?: string
   error?: string
 }> {
   // Skip for localhost
-  if (ip === '127.0.0.1' || ip === '::1') {
+  if (isLocalhost(ip)) {
     console.log('[Precheck] Localhost - skipping IP lookup')
     return { isProxy: false, countryCode: 'US' }
   }
@@ -91,11 +60,12 @@ async function lookupIP(ip: string): Promise<{
     
     try {
       const url = `https://api.ip2location.io/?key=${apiKey}&ip=${ip}&format=json`
-      console.log(`[Precheck] Calling IP2Location (key ${i + 1}/${IP2LOCATION_API_KEYS.length}) for IP:`, ip)
+      console.log(`[Precheck] Calling IP2Location (attempt ${i + 1}/${IP2LOCATION_API_KEYS.length}) for IP:`, ip)
       
-      const res = await fetch(url, { 
+      const res = await fetchWithTimeout(url, { 
         cache: 'no-store',
-        headers: { 'Accept': 'application/json' }
+        headers: { 'Accept': 'application/json' },
+        timeout: 5000 // 5 second timeout
       })
       
       // Check for rate limiting (429) or quota exceeded
@@ -106,8 +76,7 @@ async function lookupIP(ip: string): Promise<{
         return { 
           isProxy: false, 
           countryCode: 'XX', 
-          error: `All API keys rate limited (last: ${res.status})`,
-          apiKeyUsed: apiKey.substring(0, 8) + '...'
+          error: `All API keys rate limited (last: ${res.status})`
         }
       }
       
@@ -128,8 +97,7 @@ async function lookupIP(ip: string): Promise<{
         return { 
           isProxy: false, 
           countryCode: 'XX', 
-          error: data.error.error_message || 'API error',
-          apiKeyUsed: apiKey.substring(0, 8) + '...'
+          error: data.error.error_message || 'API error'
         }
       }
       
@@ -143,15 +111,14 @@ async function lookupIP(ip: string): Promise<{
       const countryCode = (data.country_code || 'XX').toUpperCase()
       
       console.log('[Precheck] VPN detection:')
-      console.log(`  - API key used: ${i + 1}/${IP2LOCATION_API_KEYS.length} (${apiKey.substring(0, 8)}...)`)
+      console.log(`  - API attempt: ${i + 1}/${IP2LOCATION_API_KEYS.length}`)
       console.log('  - proxy.is_vpn:', isVPN)
       console.log('  - Country:', countryCode)
       console.log('  - Note: Proxy detection disabled - only VPN blocked')
       
       return { 
         isProxy: isVPN, // Keep isProxy name for compatibility
-        countryCode,
-        apiKeyUsed: apiKey.substring(0, 8) + '...'
+        countryCode
       }
       
     } catch (error) {

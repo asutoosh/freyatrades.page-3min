@@ -185,48 +185,6 @@ export function requireDebugEnabled(): NextResponse | null {
   return null // null means debug is enabled
 }
 
-/**
- * Get client IP from request headers
- * Handles various proxy headers safely
- */
-export function getClientIP(req: NextRequest): string {
-  const stripPort = (raw: string | null): string | null => {
-    if (!raw) return null
-    const withoutPort = raw.replace(/:(\d+)$/, '')
-    if (withoutPort.startsWith('[') && withoutPort.endsWith(']')) {
-      return withoutPort.slice(1, -1)
-    }
-    return withoutPort
-  }
-
-  // Trust only the first IP in x-forwarded-for (closest to client)
-  const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded) {
-    const first = forwarded.split(',')[0].trim()
-    const ip = stripPort(first)
-    if (ip) return ip
-  }
-  
-  const realIP = stripPort(req.headers.get('x-real-ip'))
-  if (realIP) return realIP
-  
-  // Azure specific header
-  const azureIP = stripPort(req.headers.get('x-client-ip'))
-  if (azureIP) return azureIP
-  
-  return '127.0.0.1'
-}
-
-/**
- * Validate IP address format (IPv4 or IPv6)
- */
-export function isValidIP(ip: string): boolean {
-  // IPv4 pattern
-  const ipv4Pattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
-  
-  // IPv6 pattern (simplified - accepts most valid IPv6)
-  const ipv6Pattern = /^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^(?:[0-9a-fA-F]{1,4}:){1,7}:$|^(?:[0-9a-fA-F]{1,4}:){0,6}::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}$/
-  
-  return ipv4Pattern.test(ip) || ipv6Pattern.test(ip) || ip === '127.0.0.1' || ip === '::1'
-}
+// Re-export IP utilities from centralized module to maintain backward compatibility
+export { getClientIP, isValidIP, getUserAgent, isLocalhost } from './ip-utils'
 

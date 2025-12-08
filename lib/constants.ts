@@ -1,4 +1,5 @@
 import { OnboardingStep, SectionKey } from '@/types'
+import { sanitizeURL } from './sanitizer'
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
   {
@@ -35,9 +36,35 @@ export const SECTIONS: { id: SectionKey; label: string; icon: string; subtitle: 
   { id: 'faq', label: 'FAQ', icon: '❓', subtitle: 'Common questions' },
 ]
 
+/**
+ * Validate and sanitize external links to prevent open redirect vulnerabilities
+ * Only allows links to trusted domains
+ */
+function getValidatedLink(envVar: string | undefined, defaultValue: string, allowedDomains: string[]): string {
+  if (!envVar) return defaultValue
+  
+  const validated = sanitizeURL(envVar, allowedDomains)
+  if (validated) return validated
+  
+  console.warn(`Invalid external URL detected (not in allowed domains): ${envVar}`)
+  return defaultValue
+}
+
 export const EXTERNAL_LINKS = {
-  telegram: process.env.NEXT_PUBLIC_TRIAL_TELEGRAM_URL || 'https://t.me/your_preview_hub',
-  whop: process.env.NEXT_PUBLIC_TRIAL_WHOP_URL || 'https://whop.com/your-whop-product',
-  innerCircle: process.env.NEXT_PUBLIC_INNER_CIRCLE_URL || 'https://your-inner-circle-link',
+  telegram: getValidatedLink(
+    process.env.NEXT_PUBLIC_TRIAL_TELEGRAM_URL,
+    'https://t.me/your_preview_hub',
+    ['t.me', 'telegram.me']
+  ),
+  whop: getValidatedLink(
+    process.env.NEXT_PUBLIC_TRIAL_WHOP_URL,
+    'https://whop.com/your-whop-product',
+    ['whop.com']
+  ),
+  innerCircle: getValidatedLink(
+    process.env.NEXT_PUBLIC_INNER_CIRCLE_URL,
+    'https://your-inner-circle-link',
+    ['whop.com', 'freyatrades.page', 't.me', 'telegram.me']
+  ),
 }
 
