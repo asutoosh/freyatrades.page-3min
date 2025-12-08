@@ -78,16 +78,25 @@ export async function getSignals(limit: number = 100, skip: number = 0): Promise
 
   try {
     const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
-    const signals = await collection
-      .find()
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(limit)
-      .toArray()
+    
+    // Use aggregate pipeline for better Cosmos DB compatibility
+    const pipeline: any[] = [
+      { $sort: { createdAt: -1 } }, // Sort by createdAt (always a Date)
+    ]
+    
+    if (skip > 0) {
+      pipeline.push({ $skip: skip })
+    }
+    
+    pipeline.push({ $limit: limit })
+    
+    const signals = await collection.aggregate<StoredSignal>(pipeline).toArray()
+    
+    console.log(`[Signals] Fetched ${signals.length} signals (skip=${skip}, limit=${limit})`)
     
     return signals.map(s => ({
       ...s,
-      timestamp: s.timestamp instanceof Date ? s.timestamp : new Date(s.timestamp),
+      timestamp: s.timestamp instanceof Date ? s.timestamp : new Date(s.timestamp || s.createdAt),
     }))
   } catch (error) {
     console.error('Error getting signals from database:', error)
