@@ -67,30 +67,36 @@ export async function addSignal(signal: Omit<StoredSignal, '_id' | 'createdAt'>)
  * Get signals (newest first) with pagination
  * Returns empty array if no real signals exist
  * 
- * Note: Cosmos DB requires indexes for sorting, so we fetch all and sort in JS
+ * Note: Cosmos DB requires indexes for sorting, so we fetch and sort in JS
  */
 export async function getSignals(limit: number = 100, skip: number = 0): Promise<StoredSignal[]> {
   if (!isDatabaseConfigured()) {
     // Return memory store (empty if no signals ingested)
-    return memoryStore.slice(skip, skip + limit).map(s => ({
-      ...s,
-      timestamp: s.timestamp instanceof Date ? s.timestamp : new Date(s.timestamp),
-    }))
+    const sorted = [...memoryStore].sort((a, b) => {
+      const dateA = new Date(a.createdAt || a.timestamp || 0)
+      const dateB = new Date(b.createdAt || b.timestamp || 0)
+      return dateB.getTime() - dateA.getTime()
+    })
+    return sorted.slice(skip, skip + limit)
   }
 
   try {
-    const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
+    const collection = await getCollection(COLLECTIONS.SIGNALS)
     
-    // Cosmos DB doesn't have indexes for sorting, so fetch all and sort in JS
-    // For production with many signals, create indexes in Cosmos DB
+    // Fetch all signals (no sort in DB - Cosmos DB needs indexes)
     const allSignals = await collection.find({}).toArray()
     
     console.log(`[Signals] Fetched ${allSignals.length} total signals from DB`)
     
+    if (allSignals.length === 0) {
+      console.log('[Signals] No signals found in database')
+      return []
+    }
+    
     // Sort by createdAt descending (newest first) in JavaScript
-    const sorted = allSignals.sort((a, b) => {
-      const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt || 0)
-      const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt || 0)
+    const sorted = allSignals.sort((a: any, b: any) => {
+      const dateA = new Date(a.createdAt || a.timestamp || 0)
+      const dateB = new Date(b.createdAt || b.timestamp || 0)
       return dateB.getTime() - dateA.getTime()
     })
     
@@ -99,10 +105,12 @@ export async function getSignals(limit: number = 100, skip: number = 0): Promise
     
     console.log(`[Signals] Returning ${paginated.length} signals (skip=${skip}, limit=${limit})`)
     
-    return paginated.map(s => ({
+    // Return as StoredSignal type - convert timestamp strings to Date
+    return paginated.map((s: any) => ({
       ...s,
-      timestamp: s.timestamp instanceof Date ? s.timestamp : new Date(s.timestamp || s.createdAt),
-    }))
+      timestamp: new Date(s.timestamp || s.createdAt),
+      createdAt: new Date(s.createdAt || s.timestamp),
+    })) as StoredSignal[]
   } catch (error) {
     console.error('Error getting signals from database:', error)
     // Fallback to memory (may be empty)
