@@ -33,40 +33,9 @@ export async function GET(req: NextRequest) {
       if (res.ok) {
         ip2locationResponse = await res.json()
         
-        // Check proxy using all available fields (same logic as precheck route)
-        const topLevelProxy = ip2locationResponse.is_proxy === true || ip2locationResponse.is_proxy === 1
-        
-        let proxyDetails = {
-          isVPN: false,
-          isTor: false,
-          isResidentialProxy: false,
-          isDataCenter: false,
-          isPublicProxy: false,
-          isWebProxy: false,
-          proxyType: null,
-        }
-        
-        if (ip2locationResponse.proxy) {
-          proxyDetails = {
-            isVPN: ip2locationResponse.proxy.is_vpn === true || ip2locationResponse.proxy.is_vpn === 1,
-            isTor: ip2locationResponse.proxy.is_tor === true || ip2locationResponse.proxy.is_tor === 1,
-            isResidentialProxy: ip2locationResponse.proxy.is_residential_proxy === true || ip2locationResponse.proxy.is_residential_proxy === 1,
-            isDataCenter: ip2locationResponse.proxy.is_data_center === true || ip2locationResponse.proxy.is_data_center === 1,
-            isPublicProxy: ip2locationResponse.proxy.is_public_proxy === true || ip2locationResponse.proxy.is_public_proxy === 1,
-            isWebProxy: ip2locationResponse.proxy.is_web_proxy === true || ip2locationResponse.proxy.is_web_proxy === 1,
-            proxyType: ip2locationResponse.proxy.proxy_type || null,
-          }
-        }
-        
-        isProxy = topLevelProxy || 
-                  proxyDetails.isVPN || 
-                  proxyDetails.isTor || 
-                  proxyDetails.isResidentialProxy ||
-                  proxyDetails.isDataCenter ||
-                  proxyDetails.isPublicProxy ||
-                  proxyDetails.isWebProxy ||
-                  (proxyDetails.proxyType && proxyDetails.proxyType !== '-')
-        
+        // Check ONLY for VPN (proxy is allowed)
+        // Only check proxy.is_vpn field - ignore all other proxy types
+        isProxy = ip2locationResponse.proxy?.is_vpn === true || ip2locationResponse.proxy?.is_vpn === 1
         countryCode = (ip2locationResponse.country_code || 'XX').toUpperCase()
       } else {
         error = `API returned ${res.status}`
@@ -96,17 +65,15 @@ export async function GET(req: NextRequest) {
     
     // Detection results
     detection: {
-      isProxy: isProxy,
+      isVPN: isProxy, // Only VPN checked (proxy allowed)
       countryCode: countryCode,
-      // Show detailed proxy info if available
+      // Show proxy details for reference
       proxyDetails: ip2locationResponse?.proxy ? {
         is_vpn: ip2locationResponse.proxy.is_vpn,
-        is_tor: ip2locationResponse.proxy.is_tor,
-        is_residential_proxy: ip2locationResponse.proxy.is_residential_proxy,
-        is_data_center: ip2locationResponse.proxy.is_data_center,
+        is_proxy: ip2locationResponse.is_proxy,
         proxy_type: ip2locationResponse.proxy.proxy_type,
+        note: 'Only VPN is blocked - proxy is allowed',
       } : null,
-      topLevelIsProxy: ip2locationResponse?.is_proxy,
     },
     
     // Config
@@ -120,7 +87,7 @@ export async function GET(req: NextRequest) {
       wouldBeBlockedForCountry: wouldBeBlockedCountry,
       wouldPass: wouldPass,
       message: wouldBeBlockedVPN 
-        ? '❌ BLOCKED: VPN/Proxy detected' 
+        ? '❌ BLOCKED: VPN detected (proxy is allowed)' 
         : wouldBeBlockedCountry 
           ? `❌ BLOCKED: Country ${countryCode} is restricted`
           : '✅ PASSED: Would show preview'

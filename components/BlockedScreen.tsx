@@ -10,8 +10,8 @@ interface BlockedScreenProps {
 
 const BLOCK_MESSAGES: Record<BlockReason, { title: string; message: string; icon: string }> = {
   vpn_detected: {
-    title: 'VPN/Proxy Detected',
-    message: 'Please turn off your VPN or proxy and reload this page to access the live premium signals preview.',
+    title: 'VPN Detected',
+    message: 'Please turn off your VPN and reload this page to access the live premium signals preview.',
     icon: '🔒',
   },
   vpn_max_retries: {
