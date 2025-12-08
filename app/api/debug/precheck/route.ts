@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireDebugEnabled, getClientIP } from '@/lib/api-auth'
+import { applyRateLimit } from '@/lib/rate-limiter'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -6,8 +8,19 @@ export const dynamic = 'force-dynamic'
 /**
  * Debug endpoint - shows exactly what precheck sees
  * GET /api/debug/precheck
+ * 
+ * SECURITY: Only available when DEBUG_ENDPOINTS_ENABLED=true
  */
 export async function GET(req: NextRequest) {
+  // Check if debug endpoints are enabled
+  const debugError = requireDebugEnabled()
+  if (debugError) return debugError
+
+  // Apply rate limiting
+  const clientIP = getClientIP(req)
+  const rateLimitError = applyRateLimit(clientIP, 'admin')
+  if (rateLimitError) return rateLimitError
+
   // Get config
   const IP2LOCATION_API_KEYS = (process.env.IP2LOCATION_API_KEY || '')
     .split(',')

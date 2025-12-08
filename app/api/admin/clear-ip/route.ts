@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { deleteIPRecord, getIPRecord } from '@/lib/db/ip-store-db'
-
-// Admin API key for authentication
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY || process.env.INGEST_API_KEY || 'admin-secret-key'
+import { deleteIPRecord } from '@/lib/db/ip-store-db'
+import { requireAdminAuth, isValidIP, getClientIP } from '@/lib/api-auth'
+import { applyRateLimit } from '@/lib/rate-limiter'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -15,16 +14,14 @@ export const dynamic = 'force-dynamic'
  * Headers: Authorization: Bearer YOUR_ADMIN_API_KEY
  */
 export async function POST(req: NextRequest) {
-  // Check API key
-  const authHeader = req.headers.get('authorization')
-  const apiKey = authHeader?.replace('Bearer ', '')
-  
-  if (apiKey !== ADMIN_API_KEY) {
-    return NextResponse.json(
-      { error: 'Unauthorized - provide valid API key in Authorization header' },
-      { status: 401 }
-    )
-  }
+  // Apply rate limiting
+  const clientIP = getClientIP(req)
+  const rateLimitError = applyRateLimit(clientIP, 'admin')
+  if (rateLimitError) return rateLimitError
+
+  // Check API key using secure comparison
+  const authError = requireAdminAuth(req)
+  if (authError) return authError
 
   try {
     const body = await req.json()
@@ -37,10 +34,15 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Get current record first (for logging)
-    const existingRecord = await getIPRecord(ip)
-    
-    // Delete the record
+    // Validate IP format to prevent injection attacks
+    if (!isValidIP(ip) && ip !== '127.0.0.1' && ip !== '::1') {
+      return NextResponse.json(
+        { error: 'Invalid IP address format' },
+        { status: 400 }
+      )
+    }
+
+    // Delete the record (don't expose previous record data for security)
     const deleted = await deleteIPRecord(ip)
 
     return NextResponse.json({
@@ -49,13 +51,6 @@ export async function POST(req: NextRequest) {
       message: deleted 
         ? `IP record cleared successfully` 
         : `No record found for IP: ${ip}`,
-      previousRecord: existingRecord ? {
-        previewUsed: existingRecord.previewUsed,
-        timeConsumed: existingRecord.timeConsumed,
-        cookieSaved: existingRecord.cookieSaved,
-        firstSeen: existingRecord.firstSeen,
-        lastSeen: existingRecord.lastSeen,
-      } : null,
     })
   } catch (error: any) {
     console.error('[Admin] Error clearing IP:', error)
@@ -68,9 +63,18 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET /api/admin/clear-ip
- * Shows usage instructions
+ * Shows usage instructions (requires authentication)
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Apply rate limiting
+  const clientIP = getClientIP(req)
+  const rateLimitError = applyRateLimit(clientIP, 'admin')
+  if (rateLimitError) return rateLimitError
+
+  // Require authentication for documentation endpoint
+  const authError = requireAdminAuth(req)
+  if (authError) return authError
+
   return NextResponse.json({
     endpoint: '/api/admin/clear-ip',
     method: 'POST',

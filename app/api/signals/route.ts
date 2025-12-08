@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSignals, getSignalCount } from '@/lib/db/signals-store-db'
 import { isDatabaseConfigured } from '@/lib/db/mongodb'
+import { getClientIP } from '@/lib/api-auth'
+import { applyRateLimit } from '@/lib/rate-limiter'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
+  // Apply rate limiting (prevent scraping)
+  const clientIP = getClientIP(req)
+  const rateLimitError = applyRateLimit(clientIP, 'signals')
+  if (rateLimitError) return rateLimitError
+
   try {
     const { searchParams } = new URL(req.url)
     

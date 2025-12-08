@@ -1,36 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { markPreviewUsed, getIPRecord } from '@/lib/db/ip-store-db'
+import { getClientIP } from '@/lib/api-auth'
+import { applyRateLimit } from '@/lib/rate-limiter'
 
-// Get client IP from headers (strip port if present)
-function getClientIP(req: NextRequest): string {
-  const stripPort = (raw: string | null): string | null => {
-    if (!raw) return null
-    const withoutPort = raw.replace(/:(\d+)$/, '')
-    if (withoutPort.startsWith('[') && withoutPort.endsWith(']')) {
-      return withoutPort.slice(1, -1)
-    }
-    return withoutPort
-  }
-
-  const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded) {
-    const first = forwarded.split(',')[0].trim()
-    const ip = stripPort(first)
-    if (ip) return ip
-  }
-  
-  const realIP = stripPort(req.headers.get('x-real-ip'))
-  if (realIP) return realIP
-  
-  // Azure specific headers
-  const azureIP = stripPort(req.headers.get('x-client-ip'))
-  if (azureIP) return azureIP
-  
-  return '127.0.0.1'
-}
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  const ip = getClientIP(req)
+  // Apply rate limiting
+  const clientIP = getClientIP(req)
+  const rateLimitError = applyRateLimit(clientIP, 'public')
+  if (rateLimitError) return rateLimitError
+
+  const ip = clientIP
   
   console.log('[EndPreview] Marking preview as ended for IP:', ip)
   

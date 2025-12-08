@@ -2,25 +2,25 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getIPStats } from '@/lib/db/ip-store-db'
 import { getSignalStats } from '@/lib/db/signals-store-db'
 import { isDatabaseConfigured } from '@/lib/db/mongodb'
+import { requireAdminAuth, getClientIP } from '@/lib/api-auth'
+import { applyRateLimit } from '@/lib/rate-limiter'
 
-// Admin API key for authentication
-const ADMIN_API_KEY = process.env.INGEST_API_KEY || 'your-secret-key'
+// Force dynamic rendering
+export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/admin/stats
  * Returns statistics about IP access and signals
  */
 export async function GET(req: NextRequest) {
-  // Check API key
-  const authHeader = req.headers.get('authorization')
-  const apiKey = authHeader?.replace('Bearer ', '')
-  
-  if (apiKey !== ADMIN_API_KEY) {
-    return NextResponse.json(
-      { error: 'Unauthorized' },
-      { status: 401 }
-    )
-  }
+  // Apply rate limiting
+  const clientIP = getClientIP(req)
+  const rateLimitError = applyRateLimit(clientIP, 'admin')
+  if (rateLimitError) return rateLimitError
+
+  // Check API key using secure comparison
+  const authError = requireAdminAuth(req)
+  if (authError) return authError
 
   try {
     const [ipStats, signalStats] = await Promise.all([

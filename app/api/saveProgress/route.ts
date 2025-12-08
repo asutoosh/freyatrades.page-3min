@@ -5,37 +5,11 @@ import {
   saveAt30Seconds,
   updateTimeConsumed
 } from '@/lib/db/ip-store-db'
+import { getClientIP } from '@/lib/api-auth'
+import { applyRateLimit } from '@/lib/rate-limiter'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
-
-// Get client IP from headers (strip port if present)
-function getClientIP(req: NextRequest): string {
-  const stripPort = (raw: string | null): string | null => {
-    if (!raw) return null
-    const withoutPort = raw.replace(/:(\d+)$/, '')
-    if (withoutPort.startsWith('[') && withoutPort.endsWith(']')) {
-      return withoutPort.slice(1, -1)
-    }
-    return withoutPort
-  }
-
-  const forwarded = req.headers.get('x-forwarded-for')
-  if (forwarded) {
-    const first = forwarded.split(',')[0].trim()
-    const ip = stripPort(first)
-    if (ip) return ip
-  }
-  
-  const realIP = stripPort(req.headers.get('x-real-ip'))
-  if (realIP) return realIP
-  
-  // Azure specific headers
-  const azureIP = stripPort(req.headers.get('x-client-ip'))
-  if (azureIP) return azureIP
-  
-  return '127.0.0.1'
-}
 
 /**
  * POST /api/saveProgress
@@ -45,10 +19,32 @@ function getClientIP(req: NextRequest): string {
  * Body: { secondsWatched: number, trigger: 'threshold' | 'periodic' | 'unload' }
  */
 export async function POST(req: NextRequest) {
+  // Apply rate limiting
+  const clientIP = getClientIP(req)
+  const rateLimitError = applyRateLimit(clientIP, 'public')
+  if (rateLimitError) return rateLimitError
+
   try {
-    const ip = getClientIP(req)
+    const ip = clientIP
     const body = await req.json()
-    const { secondsWatched = 30, trigger = 'threshold' } = body
+    let { secondsWatched = 30, trigger = 'threshold' } = body
+    
+    // Input validation: secondsWatched must be a positive number within bounds
+    if (typeof secondsWatched !== 'number' || isNaN(secondsWatched)) {
+      return NextResponse.json({ 
+        ok: false, 
+        error: 'Invalid secondsWatched value' 
+      }, { status: 400 })
+    }
+    
+    // Clamp to reasonable bounds (0-300 seconds = 0-5 minutes max per call)
+    secondsWatched = Math.max(0, Math.min(300, Math.floor(secondsWatched)))
+    
+    // Validate trigger value
+    const validTriggers = ['threshold', 'periodic', 'unload']
+    if (!validTriggers.includes(trigger)) {
+      trigger = 'threshold'
+    }
     
     console.log('[SaveProgress] IP:', ip, '| Seconds:', secondsWatched, '| Trigger:', trigger)
     

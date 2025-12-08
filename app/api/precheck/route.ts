@@ -5,6 +5,7 @@ import {
   incrementVPNAttempts,
   startPreviewSession
 } from '@/lib/db/ip-store-db'
+import { applyRateLimit } from '@/lib/rate-limiter'
 
 // Force dynamic rendering (needed because we access request.headers)
 export const dynamic = 'force-dynamic'
@@ -172,8 +173,13 @@ async function lookupIP(ip: string): Promise<{
 }
 
 export async function GET(req: NextRequest) {
+  // Apply rate limiting
+  const clientIP = getClientIP(req)
+  const rateLimitError = applyRateLimit(clientIP, 'public')
+  if (rateLimitError) return rateLimitError
+
   try {
-    const ip = getClientIP(req)
+    const ip = clientIP
     const userAgent = getUserAgent(req)
     
     console.log('[Precheck] === START === IP:', ip)

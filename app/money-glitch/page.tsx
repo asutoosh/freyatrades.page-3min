@@ -22,6 +22,21 @@ import Reviews from '@/components/sections/Reviews'
 import SneakPeek from '@/components/sections/SneakPeek'
 import FAQ from '@/components/sections/FAQ'
 
+// Cookie helpers for onboarding (10 minute expiry)
+const ONBOARDING_COOKIE_NAME = 'ft_onboarding_completed'
+const ONBOARDING_COOKIE_EXPIRY_MINUTES = 10
+
+function setOnboardingCookie() {
+  const expiryDate = new Date()
+  expiryDate.setMinutes(expiryDate.getMinutes() + ONBOARDING_COOKIE_EXPIRY_MINUTES)
+  document.cookie = `${ONBOARDING_COOKIE_NAME}=1; expires=${expiryDate.toUTCString()}; path=/; SameSite=Lax`
+}
+
+function hasOnboardingCookie(): boolean {
+  if (typeof document === 'undefined') return false
+  return document.cookie.split(';').some(c => c.trim().startsWith(`${ONBOARDING_COOKIE_NAME}=`))
+}
+
 const SECTIONS_MAP: Record<SectionKey, React.ComponentType> = {
   'welcome': Welcome,
   'money-glitch': MoneyGlitch,
@@ -45,22 +60,25 @@ export default function MoneyGlitchPage() {
   const [progressSaved, setProgressSaved] = useState(false) // Track if 30-second save was made
   const [previewStartTime, setPreviewStartTime] = useState<number | null>(null) // When preview started
 
-  // Check if preview already ended (via cookie detection)
+  // Check if preview already ended or onboarding was completed recently
   useEffect(() => {
-    // Only access localStorage on client side
+    // Only access localStorage/cookies on client side
     if (typeof window === 'undefined') return
     
-    // Check local storage for onboarding completed
-    const onboardingDone = localStorage.getItem('ft_onboarding_done')
+    // Check if preview already ended
     const previewEndedLocal = localStorage.getItem('ft_preview_ended')
-    
     if (previewEndedLocal === '1') {
       setAppState('preview_ended')
       return
     }
     
-    // If onboarding was done before but preview not ended, we still show onboarding
-    // because the blueprint says everyone sees popups first
+    // Check if onboarding was completed recently (within 10 minutes)
+    // This prevents showing pop-ups again on refresh
+    if (hasOnboardingCookie()) {
+      console.log('[Onboarding] Cookie found - skipping onboarding')
+      setAppState('loading')
+      return
+    }
   }, [])
 
   // Run precheck API call
@@ -203,6 +221,9 @@ export default function MoneyGlitchPage() {
 
   // Handle onboarding completion
   const handleOnboardingComplete = () => {
+    // Set cookie (expires in 10 minutes) - prevents showing pop-ups on refresh
+    setOnboardingCookie()
+    // Also keep localStorage for backward compatibility
     localStorage.setItem('ft_onboarding_done', '1')
     setAppState('loading')
   }

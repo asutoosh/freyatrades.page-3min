@@ -105,16 +105,6 @@ export default function Onboarding({ step, onNext, onComplete }: OnboardingProps
               >
                 {isLastStep ? '🚀 Start My Preview' : 'Next →'}
               </motion.button>
-
-              {/* Skip link */}
-              {!isLastStep && (
-                <button
-                  onClick={onComplete}
-                  className="w-full mt-3 py-2 text-zinc-500 text-sm hover:text-zinc-300 transition-colors"
-                >
-                  Skip tutorial
-                </button>
-              )}
             </div>
           </div>
 
