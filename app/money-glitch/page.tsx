@@ -586,15 +586,22 @@ export default function MoneyGlitchPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Show error popup after 5 seconds if user might be stuck
-  // This gives users a way to retry if something goes wrong
+  // Show error popup after 2 seconds if user might be stuck (only once per session)
+  // Uses a cookie to prevent infinite reload loop
   useEffect(() => {
     if (appState !== 'preview_active') return
     
+    // Check if we already showed the popup this session (cookie exists)
+    const alreadyShown = document.cookie.includes('ft_error_popup_shown=1')
+    if (alreadyShown) return
+    
     const timer = setTimeout(() => {
       // Only show if user hasn't interacted (section still on money-glitch)
-      // This suggests they might be stuck
       if (activeSection === 'money-glitch') {
+        // Set cookie so we don't show again after reload (expires in 10 minutes)
+        const expiryDate = new Date()
+        expiryDate.setMinutes(expiryDate.getMinutes() + 10)
+        document.cookie = `ft_error_popup_shown=1; expires=${expiryDate.toUTCString()}; path=/; SameSite=Lax`
         setShowErrorPopup(true)
       }
     }, 2000) // Show after 2 seconds
