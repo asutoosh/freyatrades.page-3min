@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { AppState, SectionKey, BlockReason, PrecheckResponse } from '@/types'
 import { useFingerprint, getStoredFingerprint } from '@/hooks/useFingerprint'
+import { useTabSync } from '@/hooks/useTabSync'
 
 // Components
 import Onboarding from '@/components/Onboarding'
@@ -60,9 +61,36 @@ export default function MoneyGlitchPage() {
   const [loadingStartTime, setLoadingStartTime] = useState<number | null>(null)
   const [progressSaved, setProgressSaved] = useState(false) // Track if 30-second save was made
   const [previewStartTime, setPreviewStartTime] = useState<number | null>(null) // When preview started
+  const [isTabLeader, setIsTabLeader] = useState(true) // Is this tab the leader for timer?
   
   // Get browser fingerprint for anti-bypass protection
   const { visitorId: fingerprint } = useFingerprint()
+
+  // End preview function (defined early for useTabSync)
+  const endPreviewCallback = useCallback(() => {
+    setAppState('preview_ended')
+    localStorage.setItem('ft_preview_ended', '1')
+  }, [])
+
+  // Multi-tab synchronization - only leader tab runs timer and saves progress
+  const { isLeader, broadcastPreviewEnded, broadcastProgressSaved } = useTabSync({
+    timeLeft,
+    setTimeLeft,
+    onPreviewEnded: endPreviewCallback,
+    onBecameLeader: () => {
+      setIsTabLeader(true)
+      console.log('[Page] This tab is now the leader')
+    },
+    onLostLeadership: () => {
+      setIsTabLeader(false)
+      console.log('[Page] This tab lost leadership')
+    }
+  })
+
+  // Update isTabLeader when leadership changes
+  useEffect(() => {
+    setIsTabLeader(isLeader)
+  }, [isLeader])
 
   // Check if preview already ended or onboarding was completed recently
   useEffect(() => {
@@ -213,24 +241,30 @@ export default function MoneyGlitchPage() {
     
   }, [appState, loadingStartTime, precheckResult, processPrecheck])
 
-  // Countdown timer with 30-second save
+  // Countdown timer with 30-second save (only leader tab runs this)
   useEffect(() => {
     if (appState !== 'preview_active' || !previewStartTime) return
+    // Only leader tab runs the timer countdown and saves progress
+    if (!isTabLeader) {
+      console.log('[Timer] Not leader - skipping timer logic')
+      return
+    }
     
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         // Calculate how many seconds have elapsed in this session
         const elapsed = Math.floor((Date.now() - previewStartTime) / 1000)
         
-        // Save progress at 30 seconds (only once)
+        // Save progress at 30 seconds (only once, only leader)
         if (elapsed >= 30 && !progressSaved) {
           setProgressSaved(true)
           saveProgress(30, 'threshold')
+          broadcastProgressSaved()
         }
         
         if (prev <= 1) {
           clearInterval(timer)
-          // Save final progress before ending
+          // Save final progress before ending (only leader)
           const finalElapsed = Math.floor((Date.now() - previewStartTime) / 1000)
           saveProgress(finalElapsed, 'unload')
           // End preview
@@ -242,31 +276,42 @@ export default function MoneyGlitchPage() {
     }, 1000)
     
     return () => clearInterval(timer)
-  }, [appState, previewStartTime, progressSaved, saveProgress])
+  }, [appState, previewStartTime, progressSaved, saveProgress, isTabLeader, broadcastProgressSaved])
 
   // End preview function
   const endPreview = async () => {
     setAppState('preview_ended')
     localStorage.setItem('ft_preview_ended', '1')
     
-    // Call API to mark preview as used (include fingerprint)
-    try {
-      const fp = fingerprint || getStoredFingerprint() || ''
-      await fetch('/api/endPreview', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fingerprint: fp })
-      })
-    } catch (error) {
-      console.error('Failed to mark preview as ended:', error)
+    // Broadcast to other tabs that preview ended
+    broadcastPreviewEnded()
+    
+    // Call API to mark preview as used (include fingerprint) - only leader should call
+    if (isTabLeader) {
+      try {
+        const fp = fingerprint || getStoredFingerprint() || ''
+        await fetch('/api/endPreview', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fingerprint: fp })
+        })
+      } catch (error) {
+        console.error('Failed to mark preview as ended:', error)
+      }
     }
   }
 
-  // Save progress on tab close/unload
+  // Save progress on tab close/unload (only leader saves)
   useEffect(() => {
     if (appState !== 'preview_active' || !previewStartTime) return
     
     const handleUnload = () => {
+      // Only leader tab saves progress on unload to prevent double-counting
+      if (!isTabLeader) {
+        console.log('[Unload] Not leader - skipping save')
+        return
+      }
+      
       // Calculate elapsed time
       const elapsed = Math.floor((Date.now() - previewStartTime) / 1000)
       
@@ -283,7 +328,7 @@ export default function MoneyGlitchPage() {
       window.removeEventListener('beforeunload', handleUnload)
       window.removeEventListener('pagehide', handleUnload)
     }
-  }, [appState, previewStartTime])
+  }, [appState, previewStartTime, isTabLeader])
 
   // Handle onboarding completion
   const handleOnboardingComplete = () => {
