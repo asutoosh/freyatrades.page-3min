@@ -35,7 +35,6 @@ export function useFingerprint() {
           }
         }
       } catch (err) {
-        console.error('[Fingerprint] Failed to get fingerprint:', err)
         if (mounted) {
           setError(err instanceof Error ? err : new Error(String(err)))
           setIsLoading(false)

@@ -49,7 +49,6 @@ export async function GET(req: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Error fetching signals:', error)
     return NextResponse.json({
       signals: [],
       count: 0,

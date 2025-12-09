@@ -58,7 +58,7 @@ export async function addSignal(signal: Omit<StoredSignal, '_id' | 'createdAt'>)
       const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
       await collection.insertOne(signalWithDate as any)
     } catch (error) {
-      console.error('Error adding signal to database:', error)
+      // Silent fail - signal is already in memory store
     }
   }
 }
@@ -70,11 +70,7 @@ export async function addSignal(signal: Omit<StoredSignal, '_id' | 'createdAt'>)
  * Note: Cosmos DB requires indexes for sorting, so we fetch and sort in JS
  */
 export async function getSignals(limit: number = 100, skip: number = 0): Promise<StoredSignal[]> {
-  console.log(`[Signals] getSignals called with limit=${limit}, skip=${skip}`)
-  console.log(`[Signals] Database configured: ${isDatabaseConfigured()}`)
-  
   if (!isDatabaseConfigured()) {
-    console.log(`[Signals] Using memory store (${memoryStore.length} signals)`)
     // Return memory store (empty if no signals ingested)
     const sorted = [...memoryStore].sort((a, b) => {
       const dateA = new Date(a.createdAt || a.timestamp || 0)
@@ -85,55 +81,32 @@ export async function getSignals(limit: number = 100, skip: number = 0): Promise
   }
 
   try {
-    console.log('[Signals] Attempting to get collection...')
     const collection = await getCollection(COLLECTIONS.SIGNALS)
-    console.log('[Signals] Collection obtained, executing find()...')
     
     // Fetch all signals (no sort in DB - Cosmos DB needs indexes)
     const allSignals = await collection.find({}).toArray()
     
-    console.log(`[Signals] Successfully fetched ${allSignals.length} total signals from DB`)
-    
     if (allSignals.length === 0) {
-      console.log('[Signals] No signals found in database')
       return []
     }
     
-    // Log first signal for debugging
-    if (allSignals[0]) {
-      console.log('[Signals] First signal sample:', JSON.stringify({
-        id: allSignals[0].id,
-        type: allSignals[0].type,
-        script: allSignals[0].script,
-        hasTimestamp: !!allSignals[0].timestamp,
-        hasCreatedAt: !!allSignals[0].createdAt,
-      }))
-    }
-    
     // Sort by createdAt descending (newest first) in JavaScript
-    const sorted = allSignals.sort((a: any, b: any) => {
-      const dateA = new Date(a.createdAt || a.timestamp || 0)
-      const dateB = new Date(b.createdAt || b.timestamp || 0)
+    const sorted = allSignals.sort((a, b) => {
+      const dateA = new Date((a as StoredSignal).createdAt || (a as StoredSignal).timestamp || 0)
+      const dateB = new Date((b as StoredSignal).createdAt || (b as StoredSignal).timestamp || 0)
       return dateB.getTime() - dateA.getTime()
     })
     
     // Apply pagination
     const paginated = sorted.slice(skip, skip + limit)
     
-    console.log(`[Signals] Returning ${paginated.length} signals (skip=${skip}, limit=${limit})`)
-    
     // Return as StoredSignal type - convert timestamp strings to Date
-    return paginated.map((s: any) => ({
+    return paginated.map((s) => ({
       ...s,
-      timestamp: new Date(s.timestamp || s.createdAt),
-      createdAt: new Date(s.createdAt || s.timestamp),
+      timestamp: new Date((s as StoredSignal).timestamp || (s as StoredSignal).createdAt),
+      createdAt: new Date((s as StoredSignal).createdAt || (s as StoredSignal).timestamp),
     })) as StoredSignal[]
-  } catch (error: any) {
-    console.error('[Signals] Database query FAILED!')
-    console.error('[Signals] Error name:', error?.name)
-    console.error('[Signals] Error message:', error?.message)
-    console.error('[Signals] Error stack:', error?.stack)
-    console.log(`[Signals] Falling back to memory store (${memoryStore.length} signals)`)
+  } catch (error) {
     // Fallback to memory (may be empty)
     return memoryStore.slice(skip, skip + limit)
   }
@@ -143,20 +116,15 @@ export async function getSignals(limit: number = 100, skip: number = 0): Promise
  * Get total signal count
  */
 export async function getSignalCount(): Promise<number> {
-  console.log('[Signals] getSignalCount called')
-  
   if (!isDatabaseConfigured()) {
-    console.log(`[Signals] Count from memory: ${memoryStore.length}`)
     return memoryStore.length
   }
 
   try {
     const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
     const count = await collection.countDocuments()
-    console.log(`[Signals] Count from database: ${count}`)
     return count
-  } catch (error: any) {
-    console.error('[Signals] Error getting signal count:', error?.message)
+  } catch (error) {
     return memoryStore.length
   }
 }
@@ -185,7 +153,6 @@ export async function getSignalsByScript(
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
       .slice(0, limit)
   } catch (error) {
-    console.error('Error getting signals by script:', error)
     return memoryStore
       .filter(s => s.script.toUpperCase() === script.toUpperCase())
       .slice(0, limit)
@@ -211,7 +178,6 @@ export async function getNewSignalsOnly(limit: number = 10): Promise<StoredSigna
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
       .slice(0, limit)
   } catch (error) {
-    console.error('Error getting new signals:', error)
     return memoryStore.filter(s => s.type === 'signal').slice(0, limit)
   }
 }
@@ -265,7 +231,6 @@ export async function getSignalStats(): Promise<{
       byScript,
     }
   } catch (error) {
-    console.error('Error getting signal stats:', error)
     return {
       totalSignals: 0,
       newSignals: 0,
@@ -297,7 +262,6 @@ export async function deleteOldSignals(daysToKeep: number = 7): Promise<number> 
     })
     return result.deletedCount
   } catch (error) {
-    console.error('Error deleting old signals:', error)
     return 0
   }
 }
@@ -313,7 +277,7 @@ export async function clearSignals(): Promise<void> {
       const collection = await getCollection<StoredSignal>(COLLECTIONS.SIGNALS)
       await collection.deleteMany({})
     } catch (error) {
-      console.error('Error clearing signals:', error)
+      // Silent fail
     }
   }
 }

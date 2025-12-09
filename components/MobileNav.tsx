@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SectionKey } from '@/types'
 import { SECTIONS, EXTERNAL_LINKS } from '@/lib/constants'
@@ -9,10 +9,21 @@ interface MobileNavProps {
   active: SectionKey
   onChange: (section: SectionKey) => void
   timeLeft: number
+  memberCount?: number
 }
 
-export default function MobileNav({ active, onChange, timeLeft }: MobileNavProps) {
+export default function MobileNav({ active, onChange, timeLeft, memberCount = 158 }: MobileNavProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const lastClickRef = useRef<number>(0)
+  const DEBOUNCE_MS = 300
+  
+  const handleSectionClick = useCallback((section: SectionKey) => {
+    const now = Date.now()
+    if (now - lastClickRef.current < DEBOUNCE_MS) return
+    lastClickRef.current = now
+    onChange(section)
+    setIsOpen(false)
+  }, [onChange])
   
   const activeSection = SECTIONS.find(s => s.id === active)
   const minutes = Math.floor(timeLeft / 60)
@@ -90,7 +101,7 @@ export default function MobileNav({ active, onChange, timeLeft }: MobileNavProps
               <div className="flex items-center justify-between p-5 border-b border-white/5">
                 <div>
                   <h1 className="text-lg font-bold text-white">The Preview Hub</h1>
-                  <p className="text-sm text-zinc-500">158 members</p>
+                  <p className="text-sm text-zinc-500">{memberCount} members</p>
                 </div>
                 <button
                   onClick={() => setIsOpen(false)}
@@ -108,11 +119,7 @@ export default function MobileNav({ active, onChange, timeLeft }: MobileNavProps
                   <button
                     key={section.id}
                     type="button"
-                    onClick={() => {
-                      console.log('[MobileNav] Clicked:', section.id)
-                      onChange(section.id)
-                      setIsOpen(false)
-                    }}
+                    onClick={() => handleSectionClick(section.id)}
                     className={`
                       w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all cursor-pointer select-none active:scale-[0.98]
                       ${active === section.id 

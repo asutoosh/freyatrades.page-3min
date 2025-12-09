@@ -47,8 +47,6 @@ export async function POST(req: NextRequest) {
       trigger = 'threshold'
     }
     
-    console.log('[SaveProgress] IP:', ip, '| Seconds:', secondsWatched, '| Trigger:', trigger)
-    
     // Get or create IP record
     let record = await getIPRecord(ip)
     if (!record) {
@@ -57,7 +55,7 @@ export async function POST(req: NextRequest) {
     
     // If this is the 30-second threshold trigger
     if (trigger === 'threshold') {
-      const result = await saveAt30Seconds(ip, secondsWatched)
+      const result = await saveAt30Seconds(ip)
       
       // Re-fetch record to get accurate timeConsumed from absolute timestamp
       const updatedRecord = await getIPRecord(ip)
@@ -72,7 +70,6 @@ export async function POST(req: NextRequest) {
       
       // Set cookie if this is first time saving
       if (result.shouldSetCookie) {
-        console.log('[SaveProgress] Setting browser cookie for IP:', ip)
         response.cookies.set('ft_preview_started', '1', {
           httpOnly: true,
           secure: process.env.NODE_ENV === 'production',
@@ -86,7 +83,7 @@ export async function POST(req: NextRequest) {
     }
     
     // For periodic updates or unload
-    await updateTimeConsumed(ip, secondsWatched)
+    await updateTimeConsumed(ip)
     
     // Re-fetch record to get accurate timeConsumed from absolute timestamp
     const updatedRecord = await getIPRecord(ip)
@@ -98,7 +95,6 @@ export async function POST(req: NextRequest) {
     })
     
   } catch (error) {
-    console.error('[SaveProgress] Error:', error)
     return NextResponse.json({ 
       ok: false, 
       error: 'Failed to save progress' 

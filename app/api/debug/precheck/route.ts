@@ -168,6 +168,6 @@ export async function GET(req: NextRequest) {
     },
     
     // Time tracking info
-    note: 'Time consumed tracking: IPs are tracked for viewing time. After 60 seconds, users are blocked. Cookie is saved after 30 seconds.'
+    note: 'Time consumed tracking: IPs are tracked for viewing time. After 180 seconds (full preview), users are blocked. Cookie is saved after 30 seconds.'
   })
 }

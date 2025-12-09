@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 
 const REVIEWS = [
   {
+    id: 'review-tradermike',
     name: 'TraderMike',
     avatar: '🧔',
     time: '2 days ago',
@@ -11,6 +12,7 @@ const REVIEWS = [
     review: "Been following Freya's signals for 2 weeks now. Hit TP3 on gold twice this week alone. The risk management is next level.",
   },
   {
+    id: 'review-cryptosarah',
     name: 'CryptoSarah',
     avatar: '👩',
     time: '3 days ago',
@@ -18,6 +20,7 @@ const REVIEWS = [
     review: "Finally found a signal provider that actually explains the logic. Not just random calls. The system makes sense and the results speak for themselves.",
   },
   {
+    id: 'review-forexking',
     name: 'ForexKing_UK',
     avatar: '👑',
     time: '5 days ago',
@@ -25,6 +28,7 @@ const REVIEWS = [
     review: "80% win rate is no joke. I was skeptical but the trial convinced me. Now in the inner circle. Best decision I made this year.",
   },
   {
+    id: 'review-newbie',
     name: 'newbie_trader22',
     avatar: '🚀',
     time: '1 week ago',
@@ -32,6 +36,7 @@ const REVIEWS = [
     review: "Started trading 6 months ago and lost money with other groups. This is different. Clear entries, clear exits, no BS. Up 12% this month.",
   },
   {
+    id: 'review-oilbaron',
     name: 'OilBaron',
     avatar: '🛢️',
     time: '1 week ago',
@@ -73,7 +78,7 @@ export default function Reviews() {
       {/* Reviews list */}
       {REVIEWS.map((review, index) => (
         <motion.div
-          key={index}
+          key={review.id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: index * 0.1 }}

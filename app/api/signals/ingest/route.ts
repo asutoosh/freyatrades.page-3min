@@ -79,7 +79,6 @@ export async function POST(req: NextRequest) {
       signal: formatted,
     })
   } catch (error) {
-    console.error('Error ingesting signal:', error)
     return NextResponse.json(
       { error: 'Failed to process message' },
       { status: 500 }

@@ -23,12 +23,8 @@ export async function POST(req: NextRequest) {
     // Ignore body parsing errors
   }
   
-  console.log('[EndPreview] Marking preview as ended for IP:', ip)
-  console.log('[EndPreview] Fingerprint:', fingerprint ? fingerprint.substring(0, 8) + '...' : 'none')
-  
-  // Get current record for logging
+  // Get current record for fingerprint
   const record = await getIPRecord(ip)
-  console.log('[EndPreview] Time consumed before end:', record?.timeConsumed || 0, 'seconds')
   
   // Use fingerprint from record if not provided in request
   const fpToMark = fingerprint || record?.fingerprint || ''
@@ -39,7 +35,6 @@ export async function POST(req: NextRequest) {
   // Also mark fingerprint as used (blocks all IPs with same fingerprint)
   if (fpToMark) {
     await markFingerprintUsed(fpToMark)
-    console.log('[EndPreview] Marked fingerprint as used')
   }
   
   // Create response with cookie

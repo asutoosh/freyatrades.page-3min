@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { SectionKey } from '@/types'
 import { SECTIONS, EXTERNAL_LINKS } from '@/lib/constants'
@@ -11,6 +12,16 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ active, onChange, memberCount = 158 }: SidebarProps) {
+  const lastClickRef = useRef<number>(0)
+  const DEBOUNCE_MS = 300
+  
+  const handleSectionClick = useCallback((section: SectionKey) => {
+    const now = Date.now()
+    if (now - lastClickRef.current < DEBOUNCE_MS) return
+    lastClickRef.current = now
+    onChange(section)
+  }, [onChange])
+  
   return (
     <aside className="hidden md:flex w-72 flex-col bg-[#0a0a0b] border-r border-white/5">
       {/* Header */}
@@ -25,10 +36,7 @@ export default function Sidebar({ active, onChange, memberCount = 158 }: Sidebar
           <button
             key={section.id}
             type="button"
-            onClick={() => {
-              console.log('[Sidebar] Clicked:', section.id)
-              onChange(section.id)
-            }}
+            onClick={() => handleSectionClick(section.id)}
             className={`
               w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all cursor-pointer select-none
               ${active === section.id 

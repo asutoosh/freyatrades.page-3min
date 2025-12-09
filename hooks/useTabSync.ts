@@ -47,7 +47,7 @@ export function useTabSync(options: {
   
   // Generate tab ID once on mount
   useEffect(() => {
-    tabIdRef.current = `tab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    tabIdRef.current = `tab_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
   }, [])
   
   // Claim leadership function (stable - no deps)
@@ -59,7 +59,6 @@ export function useTabSync(options: {
         isLeaderRef.current = true
         setIsLeader(true)
         optionsRef.current.onBecameLeader?.()
-        console.log('[TabSync] Claimed leadership')
         
         // Try to restore expiry from localStorage if we don't have it
         if (!optionsRef.current.previewExpiresAt) {
@@ -68,7 +67,6 @@ export function useTabSync(options: {
             if (storedExpiresAt) {
               const expiresAtMs = parseInt(storedExpiresAt, 10)
               if (!isNaN(expiresAtMs) && expiresAtMs > Date.now()) {
-                console.log('[TabSync] New leader restored expiry from localStorage')
                 optionsRef.current.setPreviewExpiresAt?.(expiresAtMs)
               }
             }
@@ -95,7 +93,6 @@ export function useTabSync(options: {
       // BroadcastChannel not supported - this tab becomes leader by default
       isLeaderRef.current = true
       setIsLeader(true)
-      console.log('[TabSync] BroadcastChannel not supported - running as leader')
       return
     }
     
@@ -117,7 +114,6 @@ export function useTabSync(options: {
           case 'EXPIRY_SYNC':
             // Sync absolute expiry timestamp from leader
             if (msg.expiresAt !== undefined && msg.tabId !== tabIdRef.current) {
-              console.log('[TabSync] Received expiry sync:', new Date(msg.expiresAt).toISOString())
               optionsRef.current.setPreviewExpiresAt?.(msg.expiresAt)
               // Also store in localStorage for persistence
               try {
@@ -147,7 +143,6 @@ export function useTabSync(options: {
             
           case 'PREVIEW_ENDED':
             if (msg.tabId !== tabIdRef.current) {
-              console.log('[TabSync] Preview ended in another tab')
               optionsRef.current.onPreviewEnded()
             }
             break
@@ -161,7 +156,6 @@ export function useTabSync(options: {
                 isLeaderRef.current = false
                 setIsLeader(false)
                 optionsRef.current.onLostLeadership?.()
-                console.log('[TabSync] Lost leadership to:', msg.tabId)
               }
             }
             break
@@ -183,12 +177,9 @@ export function useTabSync(options: {
             
           case 'PROGRESS_SAVED':
             // Another tab saved progress - we don't need to
-            console.log('[TabSync] Progress saved by another tab')
             break
         }
       }
-      
-      console.log('[TabSync] Initialized with tab ID:', tabIdRef.current)
       
       // Try to restore expiry timestamp from localStorage first
       try {
@@ -196,7 +187,6 @@ export function useTabSync(options: {
         if (storedExpiresAt) {
           const expiresAtMs = parseInt(storedExpiresAt, 10)
           if (!isNaN(expiresAtMs) && expiresAtMs > Date.now()) {
-            console.log('[TabSync] Restored expiry from localStorage')
             optionsRef.current.setPreviewExpiresAt?.(expiresAtMs)
           }
         }
@@ -217,11 +207,11 @@ export function useTabSync(options: {
       }, Math.random() * 500 + 300)
       
       return () => {
+        initializedRef.current = false // Reset on cleanup for proper re-initialization
         channel.close()
         channelRef.current = null
       }
     } catch (error) {
-      console.error('[TabSync] Failed to create BroadcastChannel:', error)
       isLeaderRef.current = true
       setIsLeader(true)
     }

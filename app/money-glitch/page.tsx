@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { AppState, SectionKey, BlockReason, PrecheckResponse } from '@/types'
 import { useFingerprint, getStoredFingerprint } from '@/hooks/useFingerprint'
@@ -14,6 +14,8 @@ import PreviewEndedScreen from '@/components/PreviewEndedScreen'
 import Sidebar from '@/components/Sidebar'
 import MobileNav from '@/components/MobileNav'
 import TimerBanner from '@/components/TimerBanner'
+import ErrorBoundary from '@/components/ErrorBoundary'
+import SectionLoader from '@/components/SectionLoader'
 
 // Sections
 import Welcome from '@/components/sections/Welcome'
@@ -150,7 +152,6 @@ export default function MoneyGlitchPage() {
         }
         
         // Preview still valid - restore expiry timestamp and go directly to preview_active
-        console.log('[Init] Restoring preview expiry from localStorage, remaining:', remaining, 'seconds')
         setPreviewExpiresAt(expiresAtMs)
         setTimeLeft(remaining)
         
@@ -158,7 +159,6 @@ export default function MoneyGlitchPage() {
         const elapsed = PREVIEW_DURATION_SECONDS - remaining
         if (elapsed >= 30) {
           setProgressSaved(true)
-          console.log('[Init] Progress already saved (elapsed:', elapsed, 'seconds)')
         }
         
         // Go directly to preview_active - skip loading since we have valid session
@@ -170,7 +170,6 @@ export default function MoneyGlitchPage() {
     // Check if onboarding was completed recently (within 10 minutes)
     // This prevents showing pop-ups again on refresh
     if (hasOnboardingCookie()) {
-      console.log('[Onboarding] Cookie found - skipping onboarding')
       setAppState('loading')
       return
     }
@@ -199,9 +198,8 @@ export default function MoneyGlitchPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ secondsWatched, trigger }),
       })
-      console.log('[Preview] Progress saved:', secondsWatched, 'seconds (', trigger, ')')
     } catch (error) {
-      console.error('Failed to save progress:', error)
+      // Silent fail - non-critical
     }
   }, [])
 
@@ -210,17 +208,15 @@ export default function MoneyGlitchPage() {
   const processPrecheck = useCallback((result: PrecheckResponse) => {
     // Prevent double-processing
     if (precheckProcessedRef.current) {
-      console.log('[Loading] Precheck already processed, skipping')
       return
     }
     precheckProcessedRef.current = true
-    
-    console.log('[Loading] Processing precheck result:', result)
     
     if (result.status === 'blocked') {
       setBlockReason(result.reason || 'error')
       setAppState('blocked')
     } else if (result.status === 'ok') {
+      // Use absolute expiry timestamp from server
       // Use absolute expiry timestamp from server
       if (result.previewExpiresAt) {
         const expiresAtMs = new Date(result.previewExpiresAt).getTime()
@@ -228,7 +224,6 @@ export default function MoneyGlitchPage() {
         
         // Validate that expiry is in the future
         if (expiresAtMs <= now) {
-          console.error('[Loading] Server returned expired timestamp, blocking')
           setBlockReason('preview_used')
           setAppState('blocked')
           return
@@ -237,7 +232,6 @@ export default function MoneyGlitchPage() {
         const remaining = Math.floor((expiresAtMs - now) / 1000)
         setPreviewExpiresAt(expiresAtMs)
         setTimeLeft(remaining)
-        console.log('[Loading] Preview expires at:', new Date(expiresAtMs).toISOString(), 'remaining:', remaining, 's')
         
         // Store in localStorage for persistence across refreshes
         localStorage.setItem('ft_preview_expires_at', expiresAtMs.toString())
@@ -257,7 +251,6 @@ export default function MoneyGlitchPage() {
       setAppState('preview_active')
     } else {
       // Unknown status - treat as error
-      console.error('[Loading] Unknown precheck status:', result)
       setBlockReason('error')
       setAppState('blocked')
     }
@@ -284,13 +277,9 @@ export default function MoneyGlitchPage() {
     const runPrecheckNow = () => {
       if (cancelled || precheckCompleted) return
       
-      const fp = fingerprint || getStoredFingerprint()
-      console.log('[Loading] Starting precheck with fingerprint:', fp ? 'yes' : 'no')
-      
       // Set a timeout fallback in case precheck fails (10 seconds max wait)
       precheckTimeoutId = setTimeout(() => {
         if (!precheckCompleted && !cancelled) {
-          console.error('[Loading] Precheck timeout - treating as error')
           precheckCompleted = true
           setPrecheckResult({ status: 'blocked', reason: 'error' })
         }
@@ -308,7 +297,6 @@ export default function MoneyGlitchPage() {
           if (!precheckCompleted && !cancelled) {
             precheckCompleted = true
             if (precheckTimeoutId) clearTimeout(precheckTimeoutId)
-            console.error('[Loading] Precheck failed:', error)
             setPrecheckResult({ status: 'blocked', reason: 'error' })
           }
         })
@@ -325,7 +313,6 @@ export default function MoneyGlitchPage() {
         runPrecheckNow()
       } else {
         // Wait a bit more for fingerprint
-        console.log('[Loading] Waiting for fingerprint...')
         fingerprintWaitId = setTimeout(checkFingerprint, 100)
       }
     }
@@ -348,7 +335,6 @@ export default function MoneyGlitchPage() {
     
     // If no precheck result yet, do nothing - effect will re-run when precheckResult changes
     if (!precheckResult) {
-      console.log('[Loading] Waiting for precheck result...')
       return
     }
     
@@ -357,7 +343,6 @@ export default function MoneyGlitchPage() {
     // If minimum time not yet passed, schedule a check when it will be
     if (elapsed < 3000) {
       const remainingTime = 3000 - elapsed
-      console.log('[Loading] Waiting for minimum time, remaining:', remainingTime, 'ms')
       
       const timerId = setTimeout(() => {
         // By this time, precheckResult is available (we checked above)
@@ -371,7 +356,6 @@ export default function MoneyGlitchPage() {
     }
     
     // Both conditions met: minimum time passed AND we have precheckResult
-    console.log('[Loading] Both conditions met, processing precheck...')
     processPrecheck(precheckResult)
     
   }, [appState, loadingStartTime, precheckResult, processPrecheck])
@@ -380,7 +364,6 @@ export default function MoneyGlitchPage() {
   const endPreview = useCallback(async () => {
     // Prevent double-ending
     if (previewEndedRef.current) {
-      console.log('[Preview] Already ended, skipping')
       return
     }
     previewEndedRef.current = true
@@ -405,7 +388,7 @@ export default function MoneyGlitchPage() {
           body: JSON.stringify({ fingerprint: fp })
         })
       } catch (error) {
-        console.error('Failed to mark preview as ended:', error)
+        // Silent fail - non-critical
       }
     }
   }, [broadcastPreviewEnded, isTabLeader, fingerprint])
@@ -414,8 +397,6 @@ export default function MoneyGlitchPage() {
   // ALL tabs run this timer for responsiveness, but only leader saves progress
   useEffect(() => {
     if (appState !== 'preview_active' || !previewExpiresAt) return
-    
-    console.log('[Timer] Starting timer, expires at:', new Date(previewExpiresAt).toISOString())
     
     const timer = setInterval(() => {
       const now = Date.now()
@@ -465,7 +446,6 @@ export default function MoneyGlitchPage() {
     const handleUnload = () => {
       // Only leader tab saves progress on unload to prevent double-counting
       if (!isTabLeader) {
-        console.log('[Unload] Not leader - skipping save')
         return
       }
       
@@ -499,7 +479,6 @@ export default function MoneyGlitchPage() {
 
   // Handle section change - wrapped in useCallback for stable reference
   const handleSectionChange = useCallback((section: SectionKey) => {
-    console.log('[Navigation] Changing to section:', section)
     setActiveSection(section)
   }, [])
 
@@ -507,6 +486,7 @@ export default function MoneyGlitchPage() {
   const SectionComponent = SECTIONS_MAP[activeSection]
 
   return (
+    <ErrorBoundary>
     <div className="min-h-screen bg-[#050608]">
       {/* Overlay screens - use AnimatePresence without mode="wait" to prevent blocking */}
       <AnimatePresence>
@@ -524,7 +504,6 @@ export default function MoneyGlitchPage() {
         {appState === 'loading' && (
           <LoadingScreen
             key="loading"
-            onComplete={() => {}} // Loading completion handled by useEffect
             minimumDuration={3000}
           />
         )}
@@ -564,22 +543,25 @@ export default function MoneyGlitchPage() {
             {/* Content Area */}
             <main className="flex-1 min-h-0 flex flex-col overflow-auto">
               {/* Money-Glitch section gets full height for chat layout */}
-              {activeSection === 'money-glitch' ? (
-                <div className="flex-1 min-h-0 flex flex-col max-w-3xl w-full mx-auto">
-                  <SectionComponent />
-                </div>
-              ) : (
-                <div className="flex-1 overflow-y-auto overscroll-contain">
-                  <div className="max-w-3xl mx-auto p-4 md:p-6">
+              <Suspense fallback={<SectionLoader />}>
+                {activeSection === 'money-glitch' ? (
+                  <div className="flex-1 min-h-0 flex flex-col max-w-3xl w-full mx-auto">
                     <SectionComponent />
                   </div>
-                </div>
-              )}
+                ) : (
+                  <div className="flex-1 overflow-y-auto overscroll-contain">
+                    <div className="max-w-3xl mx-auto p-4 md:p-6">
+                      <SectionComponent />
+                    </div>
+                  </div>
+                )}
+              </Suspense>
             </main>
           </div>
         </div>
       )}
     </div>
+    </ErrorBoundary>
   )
 }
 

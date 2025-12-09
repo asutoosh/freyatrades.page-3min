@@ -9,7 +9,7 @@
  */
 
 import { getCollection, isDatabaseConfigured, COLLECTIONS } from './mongodb'
-import { ObjectId, WithId, Document } from 'mongodb'
+import { ObjectId } from 'mongodb'
 
 // Preview duration in seconds
 const PREVIEW_DURATION_SECONDS = 180
@@ -44,7 +44,7 @@ const fingerprintStore = new Map<string, IPRecord>() // Maps fingerprint -> IPRe
  * Generate a unique session ID
  */
 function generateSessionId(): string {
-  return `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  return `sess_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
 }
 
 /**
@@ -99,7 +99,6 @@ export async function getIPRecord(ip: string): Promise<IPRecord | null> {
     const record = await collection.findOne({ ip })
     return record as IPRecord | null
   } catch (error) {
-    console.error('Error getting IP record:', error)
     // Fallback to memory
     return memoryStore.get(ip) || null
   }
@@ -136,10 +135,9 @@ export async function createIPRecord(
 
   try {
     const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
-    await collection.insertOne(record as any)
+    await collection.insertOne(record as IPRecord & { _id?: ObjectId })
     return record
   } catch (error) {
-    console.error('Error creating IP record:', error)
     // Fallback to memory
     memoryStore.set(ip, record)
     return record
@@ -173,7 +171,6 @@ export async function updateIPRecord(
     )
     return result as IPRecord | null
   } catch (error) {
-    console.error('Error updating IP record:', error)
     return null
   }
 }
@@ -231,7 +228,6 @@ export async function markPreviewUsed(ip: string): Promise<void> {
       { upsert: true }
     )
   } catch (error) {
-    console.error('Error marking preview used:', error)
     // Fallback to memory
     const existing = memoryStore.get(ip)
     if (existing) {
@@ -329,7 +325,6 @@ export async function startPreviewSession(ip: string): Promise<{
       isNewSession: true
     }
   } catch (error) {
-    console.error('Error starting preview session:', error)
     return {
       sessionId: newSessionId,
       previewStartedAt: now,
@@ -341,20 +336,26 @@ export async function startPreviewSession(ip: string): Promise<{
 
 /**
  * Save at 30 seconds - marks cookie saved
- * NOTE: No longer increments timeConsumed - time is calculated from absolute timestamps
+ * NOTE: Server-side validates that at least 30 seconds have elapsed
  */
-export async function saveAt30Seconds(ip: string, _secondsWatched: number): Promise<{ success: boolean; shouldSetCookie: boolean }> {
+export async function saveAt30Seconds(ip: string): Promise<{ success: boolean; shouldSetCookie: boolean }> {
   const now = new Date()
+  const MIN_ELAPSED_SECONDS = 25 // Allow 5 second tolerance for network latency
   
   if (!isDatabaseConfigured()) {
     const existing = memoryStore.get(ip)
     if (existing) {
+      // Verify at least 25 seconds have elapsed (server-side validation)
+      const elapsed = calculateTimeConsumed(existing)
+      if (elapsed < MIN_ELAPSED_SECONDS) {
+        return { success: false, shouldSetCookie: false }
+      }
+      
       // Only save if not already saved
       if (!existing.cookieSaved) {
         existing.cookieSaved = true
         existing.lastSeen = now
-        // Update timeConsumed from absolute timestamp for backward compatibility
-        existing.timeConsumed = calculateTimeConsumed(existing)
+        existing.timeConsumed = elapsed
         return { success: true, shouldSetCookie: true }
       }
       // Already saved
@@ -369,17 +370,21 @@ export async function saveAt30Seconds(ip: string, _secondsWatched: number): Prom
     
     // Check current state
     const record = await collection.findOne({ ip })
-    const alreadySaved = record?.cookieSaved || false
     
-    // Calculate time consumed from absolute timestamp
+    // Server-side validation: verify at least 25 seconds have elapsed
     const timeConsumed = calculateTimeConsumed(record)
+    if (timeConsumed < MIN_ELAPSED_SECONDS) {
+      return { success: false, shouldSetCookie: false }
+    }
+    
+    const alreadySaved = record?.cookieSaved || false
     
     await collection.updateOne(
       { ip },
       {
         $set: { 
           cookieSaved: true,
-          timeConsumed: timeConsumed, // Set absolute value, not increment
+          timeConsumed: timeConsumed,
           lastSeen: now 
         }
       }
@@ -387,7 +392,6 @@ export async function saveAt30Seconds(ip: string, _secondsWatched: number): Prom
     
     return { success: true, shouldSetCookie: !alreadySaved }
   } catch (error) {
-    console.error('Error saving at 30 seconds:', error)
     return { success: false, shouldSetCookie: false }
   }
 }
@@ -396,7 +400,7 @@ export async function saveAt30Seconds(ip: string, _secondsWatched: number): Prom
  * Update time consumed for an IP
  * NOTE: Now calculates from absolute timestamp instead of incrementing
  */
-export async function updateTimeConsumed(ip: string, _additionalSeconds: number): Promise<void> {
+export async function updateTimeConsumed(ip: string): Promise<void> {
   const now = new Date()
   
   if (!isDatabaseConfigured()) {
@@ -424,7 +428,7 @@ export async function updateTimeConsumed(ip: string, _additionalSeconds: number)
       }
     )
   } catch (error) {
-    console.error('Error updating time consumed:', error)
+    // Silent fail - non-critical operation
   }
 }
 
@@ -443,7 +447,6 @@ export async function getTimeConsumed(ip: string): Promise<number> {
     const record = await collection.findOne({ ip })
     return calculateTimeConsumed(record as IPRecord | null)
   } catch (error) {
-    console.error('Error getting time consumed:', error)
     return 0
   }
 }
@@ -467,7 +470,6 @@ export async function getPreviewSessionInfo(ip: string): Promise<{
       const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
       record = await collection.findOne({ ip }) as IPRecord | null
     } catch (error) {
-      console.error('Error getting preview session info:', error)
       return null
     }
   }
@@ -616,22 +618,17 @@ export async function getIPStats(): Promise<{
  * Delete a specific IP record (for admin/testing purposes)
  */
 export async function deleteIPRecord(ip: string): Promise<boolean> {
-  console.log(`[IP Store] Deleting IP record for: ${ip}`)
-  
   if (!isDatabaseConfigured()) {
     const existed = memoryStore.has(ip)
     memoryStore.delete(ip)
-    console.log(`[IP Store] Deleted from memory: ${existed}`)
     return existed
   }
 
   try {
     const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
     const result = await collection.deleteOne({ ip })
-    console.log(`[IP Store] Deleted from database: ${result.deletedCount > 0}`)
     return result.deletedCount > 0
   } catch (error) {
-    console.error('[IP Store] Error deleting IP record:', error)
     return false
   }
 }
@@ -642,8 +639,6 @@ export async function deleteIPRecord(ip: string): Promise<boolean> {
  */
 export async function clearFingerprint(fingerprint: string): Promise<{ cleared: boolean; recordsUpdated: number }> {
   if (!fingerprint) return { cleared: false, recordsUpdated: 0 }
-  
-  console.log(`[IP Store] Clearing fingerprint: ${fingerprint.substring(0, 8)}...`)
   
   if (!isDatabaseConfigured()) {
     // Remove from fingerprint store
@@ -658,34 +653,38 @@ export async function clearFingerprint(fingerprint: string): Promise<{ cleared: 
         record.fingerprintFirstSeen = undefined
         record.previewUsed = false
         record.timeConsumed = 0
+        record.previewStartedAt = null
+        record.previewExpiresAt = null
+        record.sessionId = undefined
+        record.cookieSaved = false
         count++
       }
     }
     
-    console.log(`[IP Store] Cleared fingerprint from memory: ${existed}, records reset: ${count}`)
     return { cleared: existed, recordsUpdated: count }
   }
 
   try {
     const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
     
-    // Update all records with this fingerprint - reset their preview status
+    // Update all records with this fingerprint - reset their preview status completely
     const result = await collection.updateMany(
       { fingerprint },
       {
-        $unset: { fingerprint: '', fingerprintFirstSeen: '' },
+        $unset: { fingerprint: '', fingerprintFirstSeen: '', sessionId: '' },
         $set: { 
           previewUsed: false, 
           timeConsumed: 0,
+          previewStartedAt: null,
+          previewExpiresAt: null,
+          cookieSaved: false,
           lastSeen: new Date() 
         }
       }
     )
     
-    console.log(`[IP Store] Cleared fingerprint from database, records updated: ${result.modifiedCount}`)
     return { cleared: result.modifiedCount > 0, recordsUpdated: result.modifiedCount }
   } catch (error) {
-    console.error('[IP Store] Error clearing fingerprint:', error)
     return { cleared: false, recordsUpdated: 0 }
   }
 }
@@ -705,7 +704,6 @@ export async function getRecordByFingerprint(fingerprint: string): Promise<IPRec
     const record = await collection.findOne({ fingerprint })
     return record as IPRecord | null
   } catch (error) {
-    console.error('Error getting record by fingerprint:', error)
     return fingerprintStore.get(fingerprint) || null
   }
 }
@@ -767,7 +765,7 @@ export async function saveFingerprint(ip: string, fingerprint: string): Promise<
       fingerprintStore.set(fingerprint, updatedRecord as IPRecord)
     }
   } catch (error) {
-    console.error('Error saving fingerprint:', error)
+    // Silent fail - non-critical operation
   }
 }
 
@@ -805,7 +803,6 @@ export async function isFingerprintUsed(fingerprint: string): Promise<{ used: bo
     }
     return { used: false, timeConsumed: 0, isExpired: false }
   } catch (error) {
-    console.error('Error checking fingerprint usage:', error)
     return { used: false, timeConsumed: 0, isExpired: false }
   }
 }
@@ -839,7 +836,7 @@ export async function markFingerprintUsed(fingerprint: string): Promise<void> {
       }
     )
   } catch (error) {
-    console.error('Error marking fingerprint used:', error)
+    // Silent fail - non-critical operation
   }
 }
 

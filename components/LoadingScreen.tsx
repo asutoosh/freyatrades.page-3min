@@ -4,7 +4,6 @@ import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 
 interface LoadingScreenProps {
-  onComplete: () => void
   minimumDuration?: number
 }
 
@@ -15,7 +14,7 @@ const LOADING_MESSAGES = [
   'Preparing premium content...',
 ]
 
-export default function LoadingScreen({ onComplete, minimumDuration = 3000 }: LoadingScreenProps) {
+export default function LoadingScreen({ minimumDuration = 3000 }: LoadingScreenProps) {
   const [progress, setProgress] = useState(0)
   const [messageIndex, setMessageIndex] = useState(0)
 

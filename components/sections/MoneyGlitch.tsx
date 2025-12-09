@@ -110,7 +110,6 @@ export default function MoneyGlitch() {
         setDbConnected(data.status.databaseConnected)
       }
     } catch (err) {
-      console.error('Failed to fetch signals:', err)
       if (!append) {
         setError('Failed to connect to signals API')
         setSignals([])
@@ -177,7 +176,7 @@ export default function MoneyGlitch() {
         setTotalCount(data.totalCount)
       }
     } catch (err) {
-      console.error('Failed to check for new signals:', err)
+      // Silent fail - will retry on next poll
     }
   }, [signals])
 
@@ -191,7 +190,7 @@ export default function MoneyGlitch() {
     if (!loading && signals.length > 0 && scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
     }
-  }, [loading, signals.length === 0])
+  }, [loading, signals.length])
 
   // Poll for new signals every 15 seconds
   useEffect(() => {
@@ -224,6 +223,15 @@ export default function MoneyGlitch() {
       }
     }, 100) // Throttle to max 10 events/second
   }, [hasMore, loadingMore, loadMore])
+
+  // Cleanup scroll throttle on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollThrottleRef.current) {
+        clearTimeout(scrollThrottleRef.current)
+      }
+    }
+  }, [])
 
   // Loading state
   if (loading) {
@@ -372,7 +380,7 @@ export default function MoneyGlitch() {
               <div className="flex items-center gap-3 mb-4">
                 <img 
                   src="/sorcerer.png" 
-                  alt="sorcerer" 
+                  alt="Sorcerer profile avatar" 
                   className="w-10 h-10 rounded-full object-cover"
                 />
                 <div className="flex items-center gap-2 flex-wrap">

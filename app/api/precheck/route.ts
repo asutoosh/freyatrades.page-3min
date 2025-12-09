@@ -77,13 +77,11 @@ async function lookupIP(ip: string): Promise<{
 }> {
   // Skip for localhost
   if (ip === '127.0.0.1' || ip === '::1') {
-    console.log('[Precheck] Localhost - skipping IP lookup')
     return { isProxy: false, countryCode: 'US' }
   }
 
   // Must have at least one API key
   if (IP2LOCATION_API_KEYS.length === 0) {
-    console.error('[Precheck] IP2LOCATION_API_KEY not configured!')
     return { isProxy: false, countryCode: 'XX', error: 'No API keys configured' }
   }
 
@@ -96,7 +94,6 @@ async function lookupIP(ip: string): Promise<{
     
     try {
       const url = `https://api.ip2location.io/?key=${apiKey}&ip=${ip}&format=json`
-      console.log(`[Precheck] Calling IP2Location (key ${i + 1}/${IP2LOCATION_API_KEYS.length}) for IP:`, ip)
       
       const res = await fetch(url, { 
         cache: 'no-store',
@@ -105,9 +102,7 @@ async function lookupIP(ip: string): Promise<{
       
       // Check for rate limiting (429) or quota exceeded
       if (res.status === 429 || res.status === 402 || res.status === 403) {
-        console.warn(`[Precheck] API key ${i + 1} rate limited/quota exceeded (${res.status}), trying next key...`)
         if (!isLastKey) continue // Try next key
-        // If last key, return error
         return { 
           isProxy: false, 
           countryCode: 'XX', 
@@ -117,9 +112,7 @@ async function lookupIP(ip: string): Promise<{
       }
       
       if (!res.ok) {
-        console.error(`[Precheck] IP2Location API error with key ${i + 1}:`, res.status, res.statusText)
         if (!isLastKey) continue // Try next key
-        // If last key, return error
         lastError = new Error(`API returned ${res.status}`)
         continue
       }
@@ -128,7 +121,6 @@ async function lookupIP(ip: string): Promise<{
       
       // Check for API error in response
       if (data.error) {
-        console.error(`[Precheck] IP2Location API error in response (key ${i + 1}):`, data.error.error_message)
         if (!isLastKey) continue // Try next key
         return { 
           isProxy: false, 
@@ -138,38 +130,22 @@ async function lookupIP(ip: string): Promise<{
         }
       }
       
-      console.log(`[Precheck] IP2Location response (key ${i + 1}):`, JSON.stringify(data))
-      
       // Check ONLY for VPN (not proxy)
-      // Only check proxy.is_vpn field - ignore all other proxy types
       const isVPN = data.proxy?.is_vpn === true || data.proxy?.is_vpn === 1
-      
-      // Get country code (required for location blocking)
       const countryCode = (data.country_code || 'XX').toUpperCase()
       
-      console.log('[Precheck] VPN detection:')
-      console.log(`  - API key used: ${i + 1}/${IP2LOCATION_API_KEYS.length} (${apiKey.substring(0, 8)}...)`)
-      console.log('  - proxy.is_vpn:', isVPN)
-      console.log('  - Country:', countryCode)
-      console.log('  - Note: Proxy detection disabled - only VPN blocked')
-      
       return { 
-        isProxy: isVPN, // Keep isProxy name for compatibility
+        isProxy: isVPN,
         countryCode,
         apiKeyUsed: apiKey.substring(0, 8) + '...'
       }
       
     } catch (error) {
-      console.error(`[Precheck] IP2Location lookup failed with key ${i + 1}:`, error)
       lastError = error instanceof Error ? error : new Error(String(error))
-      
-      // If not last key, try next one
       if (!isLastKey) continue
     }
   }
   
-  // All keys failed
-  console.error('[Precheck] All IP2Location API keys failed!', lastError?.message)
   return { 
     isProxy: false, 
     countryCode: 'XX', 
@@ -190,32 +166,28 @@ export async function GET(req: NextRequest) {
     // Get fingerprint from query string (sent by client)
     const fingerprint = req.nextUrl.searchParams.get('fp') || ''
     
-    console.log('[Precheck] === START === IP:', ip)
-    console.log('[Precheck] Fingerprint:', fingerprint ? fingerprint.substring(0, 8) + '...' : 'none')
-    console.log('[Precheck] Restricted countries:', RESTRICTED_COUNTRIES)
-    
     // ========================================
-    // STEP 1: Check for preview-ended cookie (fastest check)
+    // STEP 1: Check for preview cookies (fastest check)
     // ========================================
     const previewEndedCookie = req.cookies.get('ft_preview_ended')
     if (previewEndedCookie?.value === '1') {
-      console.log('[Precheck] Blocked: preview_used (cookie)')
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
+    
+    // Also check ft_preview_started - if set, user has already started a session
+    const previewStartedCookie = req.cookies.get('ft_preview_started')
+    const hasStartedBefore = previewStartedCookie?.value === '1'
 
     // ========================================
     // STEP 2: Get fingerprint record (if fingerprint provided)
     // ========================================
-    let fpRecord = null
     let fpTimeConsumed = 0
     if (fingerprint) {
       const fpCheck = await isFingerprintUsed(fingerprint)
       if (fpCheck.used || fpCheck.isExpired) {
-        console.log('[Precheck] Blocked: fingerprint already used preview (used:', fpCheck.used, ', expired:', fpCheck.isExpired, ')')
         return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
       }
       fpTimeConsumed = fpCheck.timeConsumed
-      console.log('[Precheck] Fingerprint timeConsumed:', fpTimeConsumed)
     }
 
     // ========================================
@@ -225,13 +197,11 @@ export async function GET(req: NextRequest) {
     
     // Check if preview already used for this IP
     if (record?.previewUsed) {
-      console.log('[Precheck] Blocked: preview_used (IP record)')
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
     
     // Check if preview has expired based on absolute timestamp
     if (isPreviewExpired(record)) {
-      console.log('[Precheck] Blocked: preview expired (timestamp)')
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
     
@@ -243,10 +213,8 @@ export async function GET(req: NextRequest) {
     // This catches users who switch IP but same device
     // ========================================
     const maxTimeConsumed = Math.max(ipTimeConsumed, fpTimeConsumed)
-    console.log('[Precheck] IP timeConsumed:', ipTimeConsumed, '| FP timeConsumed:', fpTimeConsumed, '| MAX:', maxTimeConsumed)
     
     if (maxTimeConsumed >= TIME_CONSUMED_THRESHOLD) {
-      console.log('[Precheck] Blocked: time_consumed exceeds threshold -', maxTimeConsumed, 'seconds')
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
 
@@ -255,7 +223,6 @@ export async function GET(req: NextRequest) {
     // ========================================
     const now = new Date()
     if (record?.vpnWindowEnd && record.vpnWindowEnd > now && record.vpnAttempts >= VPN_MAX_RETRIES) {
-      console.log('[Precheck] Blocked: vpn_max_retries')
       return NextResponse.json({ status: 'blocked', reason: 'vpn_max_retries' })
     }
 
@@ -264,16 +231,10 @@ export async function GET(req: NextRequest) {
     // ========================================
     const ipInfo = await lookupIP(ip)
     
-    if (ipInfo.error) {
-      console.warn('[Precheck] IP lookup had error:', ipInfo.error, 'but continuing')
-    }
-    
     // ========================================
     // STEP 7: Check for VPN
     // ========================================
     if (ipInfo.isProxy) {
-      console.log('[Precheck] VPN DETECTED!')
-      
       // Create record if doesn't exist
       if (!record) {
         record = await createIPRecord(ip, { userAgent, country: ipInfo.countryCode })
@@ -283,11 +244,9 @@ export async function GET(req: NextRequest) {
       const { attempts } = await incrementVPNAttempts(ip, VPN_RETRY_WINDOW_HOURS)
       
       if (attempts > VPN_MAX_RETRIES) {
-        console.log('[Precheck] Blocked: vpn_max_retries (exceeded)')
         return NextResponse.json({ status: 'blocked', reason: 'vpn_max_retries' })
       }
       
-      console.log('[Precheck] Blocked: vpn_detected (attempt', attempts, ')')
       return NextResponse.json({ status: 'blocked', reason: 'vpn_detected' })
     }
 
@@ -295,7 +254,6 @@ export async function GET(req: NextRequest) {
     // STEP 8: Check restricted country
     // ========================================
     if (RESTRICTED_COUNTRIES.includes(ipInfo.countryCode)) {
-      console.log('[Precheck] Blocked: restricted_country -', ipInfo.countryCode)
       return NextResponse.json({ status: 'blocked', reason: 'restricted_country' })
     }
 
@@ -314,7 +272,6 @@ export async function GET(req: NextRequest) {
     // Save fingerprint to link device to this IP record
     if (fingerprint) {
       await saveFingerprint(ip, fingerprint)
-      console.log('[Precheck] Linked fingerprint to IP:', ip)
     }
 
     // ========================================
@@ -327,17 +284,8 @@ export async function GET(req: NextRequest) {
     
     // Check if already expired (edge case: session started but expired)
     if (remainingDuration <= 0 || isPreviewExpired(updatedRecord)) {
-      console.log('[Precheck] Blocked: preview expired')
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
-    
-    // All checks passed!
-    console.log('[Precheck] === PASSED === Allowing preview')
-    console.log('[Precheck] Session ID:', sessionInfo.sessionId)
-    console.log('[Precheck] Is new session:', sessionInfo.isNewSession)
-    console.log('[Precheck] Preview started at:', sessionInfo.previewStartedAt.toISOString())
-    console.log('[Precheck] Preview expires at:', sessionInfo.previewExpiresAt.toISOString())
-    console.log('[Precheck] Remaining duration:', remainingDuration, 'seconds')
     
     return NextResponse.json({
       status: 'ok',
@@ -351,8 +299,7 @@ export async function GET(req: NextRequest) {
     })
     
   } catch (error) {
-    console.error('[Precheck] Error:', error)
-    // On error, allow access (fail open) but log it
+    // On error, allow access (fail open)
     return NextResponse.json({
       status: 'ok',
       previewDuration: PREVIEW_DURATION,

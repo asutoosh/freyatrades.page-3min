@@ -97,10 +97,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       results,
-      message: 'Records cleared for testing. User can now access the preview again.'
+      message: 'Records cleared for testing. User can now access the preview again.',
+      browserNote: 'IMPORTANT: User must also clear browser localStorage. Run this in browser console: localStorage.removeItem("ft_preview_ended"); localStorage.removeItem("ft_preview_expires_at"); localStorage.removeItem("ft_session_id"); localStorage.removeItem("ft_fingerprint"); Then refresh the page.'
     })
   } catch (error: any) {
-    console.error('[Admin] Error clearing records:', error)
     return NextResponse.json(
       { error: 'Failed to clear records', details: error?.message },
       { status: 500 }

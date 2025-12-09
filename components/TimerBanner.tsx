@@ -18,6 +18,9 @@ export default function TimerBanner({ timeLeft }: TimerBannerProps) {
   // Color changes based on time
   const isUrgent = timeLeft <= 30
   const isWarning = timeLeft <= 60 && !isUrgent
+  
+  // Accessible time announcement
+  const timeAnnouncement = `${minutes} minute${minutes !== 1 ? 's' : ''} and ${seconds} second${seconds !== 1 ? 's' : ''} remaining`
 
   return (
     <div className="hidden md:block sticky top-0 z-20 bg-[#0a0a0b]/95 backdrop-blur-sm border-b border-white/5">
@@ -64,24 +67,34 @@ export default function TimerBanner({ timeLeft }: TimerBannerProps) {
           )}
           
           {/* Timer */}
-          <div className={`
-            flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
-            ${isUrgent 
-              ? 'bg-red-500/20 border border-red-500/30' 
-              : isWarning 
-                ? 'bg-orange-500/20 border border-orange-500/30' 
-                : 'bg-zinc-900 border border-zinc-800'
-            }
-          `}>
-            <span className={isUrgent ? 'text-red-400' : isWarning ? 'text-orange-400' : 'text-yellow-400'}>
+          <div 
+            className={`
+              flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
+              ${isUrgent 
+                ? 'bg-red-500/20 border border-red-500/30' 
+                : isWarning 
+                  ? 'bg-orange-500/20 border border-orange-500/30' 
+                  : 'bg-zinc-900 border border-zinc-800'
+              }
+            `}
+            role="timer"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-label={timeAnnouncement}
+          >
+            <span className={isUrgent ? 'text-red-400' : isWarning ? 'text-orange-400' : 'text-yellow-400'} aria-hidden="true">
               ⏱️
             </span>
-            <span className={`
-              font-mono text-lg font-bold
-              ${isUrgent ? 'text-red-400' : isWarning ? 'text-orange-400' : 'text-white'}
-            `}>
+            <span 
+              className={`
+                font-mono text-lg font-bold
+                ${isUrgent ? 'text-red-400' : isWarning ? 'text-orange-400' : 'text-white'}
+              `}
+              aria-hidden="true"
+            >
               {timeString}
             </span>
+            <span className="sr-only">{timeAnnouncement}</span>
           </div>
         </div>
       </div>

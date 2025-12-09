@@ -38,7 +38,6 @@ export async function GET(req: NextRequest) {
       timestamp: new Date().toISOString(),
     })
   } catch (error) {
-    console.error('Error getting stats:', error)
     return NextResponse.json(
       { error: 'Failed to get stats' },
       { status: 500 }

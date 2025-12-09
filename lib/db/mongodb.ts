@@ -18,14 +18,7 @@ const MONGODB_URI = process.env.AZURE_COSMOS_CONNECTION_STRING ||
                      ''
 const DB_NAME = process.env.AZURE_COSMOS_DB_NAME || 'freyatrades'
 
-// Validate configuration
-if (!MONGODB_URI) {
-  if (process.env.NODE_ENV === 'production') {
-    console.warn('⚠️ AZURE_COSMOS_CONNECTION_STRING not set - using in-memory fallback')
-  }
-} else {
-  console.log('✅ Database connection string found')
-}
+// Configuration is validated at runtime when connection is attempted
 
 // Global client promise for connection reuse
 let client: MongoClient | null = null
@@ -58,11 +51,9 @@ async function getClient(): Promise<MongoClient> {
     clientPromise = MongoClient.connect(MONGODB_URI, options)
       .then((connectedClient) => {
         client = connectedClient
-        console.log('✅ Connected to Azure Cosmos DB')
         return connectedClient
       })
       .catch((err) => {
-        console.error('❌ Failed to connect to Azure Cosmos DB:', err)
         clientPromise = null
         throw err
       })
@@ -104,7 +95,6 @@ export async function closeConnection(): Promise<void> {
     await client.close()
     client = null
     clientPromise = null
-    console.log('👋 Closed Azure Cosmos DB connection')
   }
 }
 

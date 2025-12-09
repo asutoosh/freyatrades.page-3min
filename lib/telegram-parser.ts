@@ -117,7 +117,7 @@ function parseStopLossMessage(text: string): Partial<ParsedSignal> {
  * Generate unique ID for signal
  */
 function generateId(): string {
-  return `sig_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  return `sig_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
 }
 
 /**
