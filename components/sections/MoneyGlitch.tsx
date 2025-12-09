@@ -228,7 +228,7 @@ export default function MoneyGlitch() {
   // Loading state
   if (loading) {
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         <div className="flex-1 space-y-4 p-4">
           {[1, 2, 3].map(i => (
             <div key={i} className="message-card animate-pulse">
@@ -251,7 +251,7 @@ export default function MoneyGlitch() {
   // Error state
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full min-h-0">
         <div className="text-center py-12">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-500/10 mb-4">
             <span className="text-3xl">⚠️</span>
@@ -275,7 +275,7 @@ export default function MoneyGlitch() {
   // No database connected state
   if (!dbConnected) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex items-center justify-center h-full min-h-0">
         <div className="text-center py-12">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-yellow-500/10 mb-4">
             <span className="text-3xl">🔌</span>
@@ -291,7 +291,7 @@ export default function MoneyGlitch() {
   // No signals state
   if (signals.length === 0) {
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         {/* Live indicator */}
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20 m-4">
           <span className="relative flex h-3 w-3">
@@ -318,7 +318,7 @@ export default function MoneyGlitch() {
 
   // Has signals - render chat view
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full min-h-0 relative">
       {/* Scrollable chat container */}
       <div
         ref={scrollContainerRef}

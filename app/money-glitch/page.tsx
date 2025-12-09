@@ -72,19 +72,29 @@ export default function MoneyGlitchPage() {
     localStorage.setItem('ft_preview_ended', '1')
   }, [])
 
+  // Stable callback for setting time from number value
+  const setTimeLeftDirect = useCallback((time: number) => {
+    setTimeLeft(time)
+  }, [])
+
+  // Stable callbacks for leader changes
+  const handleBecameLeader = useCallback(() => {
+    setIsTabLeader(true)
+    console.log('[Page] This tab is now the leader')
+  }, [])
+
+  const handleLostLeadership = useCallback(() => {
+    setIsTabLeader(false)
+    console.log('[Page] This tab lost leadership')
+  }, [])
+
   // Multi-tab synchronization - only leader tab runs timer and saves progress
   const { isLeader, broadcastPreviewEnded, broadcastProgressSaved } = useTabSync({
     timeLeft,
-    setTimeLeft,
+    setTimeLeft: setTimeLeftDirect,
     onPreviewEnded: endPreviewCallback,
-    onBecameLeader: () => {
-      setIsTabLeader(true)
-      console.log('[Page] This tab is now the leader')
-    },
-    onLostLeadership: () => {
-      setIsTabLeader(false)
-      console.log('[Page] This tab lost leadership')
-    }
+    onBecameLeader: handleBecameLeader,
+    onLostLeadership: handleLostLeadership
   })
 
   // Update isTabLeader when leadership changes
@@ -391,7 +401,7 @@ export default function MoneyGlitchPage() {
           />
 
           {/* Main Content */}
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0">
             {/* Mobile Navigation */}
             <MobileNav
               active={activeSection}
@@ -403,14 +413,14 @@ export default function MoneyGlitchPage() {
             <TimerBanner timeLeft={timeLeft} />
 
             {/* Content Area */}
-            <main className="flex-1 overflow-hidden flex flex-col">
+            <main className="flex-1 min-h-0 flex flex-col overflow-auto">
               {/* Money-Glitch section gets full height for chat layout */}
               {activeSection === 'money-glitch' ? (
-                <div key={`section-${activeSection}`} className="flex-1 overflow-hidden max-w-3xl w-full mx-auto">
+                <div key={`section-${activeSection}`} className="flex-1 min-h-0 flex flex-col max-w-3xl w-full mx-auto">
                   <SectionComponent key={activeSection} />
                 </div>
               ) : (
-                <div key={`section-${activeSection}`} className="flex-1 overflow-y-auto">
+                <div key={`section-${activeSection}`} className="flex-1 overflow-y-auto overscroll-contain">
                   <div className="max-w-3xl mx-auto p-4 md:p-6">
                     <SectionComponent key={activeSection} />
                   </div>

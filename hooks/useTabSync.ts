@@ -14,7 +14,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
  */
 
 interface TabSyncMessage {
-  type: 'TIMER_UPDATE' | 'PREVIEW_ENDED' | 'LEADER_PING' | 'LEADER_CLAIM' | 'PROGRESS_SAVED'
+  type: 'TIMER_UPDATE' | 'PREVIEW_ENDED' | 'LEADER_PING' | 'LEADER_CLAIM' | 'PROGRESS_SAVED' | 'REQUEST_TIME'
   timeLeft?: number
   tabId?: string
   timestamp?: number
@@ -26,55 +26,54 @@ const BROADCAST_INTERVAL_MS = 2000 // Sync timer every 2 seconds
 
 export function useTabSync(options: {
   timeLeft: number
-  setTimeLeft: (time: number | ((prev: number) => number)) => void
+  setTimeLeft: (time: number) => void
   onPreviewEnded: () => void
   onBecameLeader?: () => void
   onLostLeadership?: () => void
 }) {
-  const { timeLeft, setTimeLeft, onPreviewEnded, onBecameLeader, onLostLeadership } = options
+  // Store options in refs to avoid dependency changes
+  const optionsRef = useRef(options)
+  optionsRef.current = options
   
   const channelRef = useRef<BroadcastChannel | null>(null)
-  const tabIdRef = useRef<string>(`tab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`)
+  const tabIdRef = useRef<string>('')
   const isLeaderRef = useRef(false)
-  const lastLeaderPingRef = useRef<number>(Date.now())
+  const lastLeaderPingRef = useRef<number>(0)
   const [isLeader, setIsLeader] = useState(false)
-  const claimLeadershipRef = useRef<() => void>(() => {})
+  const initializedRef = useRef(false)
   
-  // Claim leadership function
+  // Generate tab ID once on mount
+  useEffect(() => {
+    tabIdRef.current = `tab_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  }, [])
+  
+  // Claim leadership function (stable - no deps)
   const claimLeadership = useCallback(() => {
-    if (!channelRef.current) {
-      // No channel means we're the only tab or BroadcastChannel not supported
-      isLeaderRef.current = true
-      setIsLeader(true)
-      onBecameLeader?.()
-      return
-    }
-    
-    // Check if current leader is still active
     const timeSinceLastPing = Date.now() - lastLeaderPingRef.current
     
-    if (timeSinceLastPing > LEADER_TIMEOUT_MS) {
-      isLeaderRef.current = true
-      setIsLeader(true)
-      onBecameLeader?.()
-      console.log('[TabSync] Claimed leadership')
-      
-      // Announce leadership
-      channelRef.current.postMessage({
-        type: 'LEADER_CLAIM',
-        tabId: tabIdRef.current,
-        timestamp: Date.now()
-      } as TabSyncMessage)
+    if (timeSinceLastPing > LEADER_TIMEOUT_MS || lastLeaderPingRef.current === 0) {
+      if (!isLeaderRef.current) {
+        isLeaderRef.current = true
+        setIsLeader(true)
+        optionsRef.current.onBecameLeader?.()
+        console.log('[TabSync] Claimed leadership')
+        
+        // Announce leadership
+        channelRef.current?.postMessage({
+          type: 'LEADER_CLAIM',
+          tabId: tabIdRef.current,
+          timestamp: Date.now()
+        } as TabSyncMessage)
+      }
     }
-  }, [onBecameLeader])
+  }, [])
   
-  // Keep ref updated
+  // Initialize BroadcastChannel ONCE
   useEffect(() => {
-    claimLeadershipRef.current = claimLeadership
-  }, [claimLeadership])
-  
-  // Initialize BroadcastChannel
-  useEffect(() => {
+    // Prevent double initialization in React Strict Mode
+    if (initializedRef.current) return
+    initializedRef.current = true
+    
     if (typeof window === 'undefined' || !('BroadcastChannel' in window)) {
       // BroadcastChannel not supported - this tab becomes leader by default
       isLeaderRef.current = true
@@ -94,14 +93,25 @@ export function useTabSync(options: {
           case 'TIMER_UPDATE':
             if (msg.timeLeft !== undefined && msg.tabId !== tabIdRef.current) {
               // Sync timer from leader - always accept leader's time
-              setTimeLeft(msg.timeLeft)
+              optionsRef.current.setTimeLeft(msg.timeLeft)
+            }
+            break
+          
+          case 'REQUEST_TIME':
+            // Another tab is asking for current time - if we're leader, respond
+            if (isLeaderRef.current && msg.tabId !== tabIdRef.current) {
+              channel.postMessage({
+                type: 'TIMER_UPDATE',
+                timeLeft: optionsRef.current.timeLeft,
+                tabId: tabIdRef.current
+              } as TabSyncMessage)
             }
             break
             
           case 'PREVIEW_ENDED':
             if (msg.tabId !== tabIdRef.current) {
               console.log('[TabSync] Preview ended in another tab')
-              onPreviewEnded()
+              optionsRef.current.onPreviewEnded()
             }
             break
             
@@ -113,7 +123,7 @@ export function useTabSync(options: {
                 // We were leader but someone else is now
                 isLeaderRef.current = false
                 setIsLeader(false)
-                onLostLeadership?.()
+                optionsRef.current.onLostLeadership?.()
                 console.log('[TabSync] Lost leadership to:', msg.tabId)
               }
             }
@@ -123,12 +133,12 @@ export function useTabSync(options: {
             // Another tab is claiming leadership
             if (msg.tabId !== tabIdRef.current) {
               lastLeaderPingRef.current = Date.now()
-              if (isLeaderRef.current) {
+              if (isLeaderRef.current && msg.timestamp) {
                 // Compare timestamps - older claim wins
-                if (msg.timestamp && msg.timestamp < Date.now() - 50) {
+                if (msg.timestamp < Date.now() - 50) {
                   isLeaderRef.current = false
                   setIsLeader(false)
-                  onLostLeadership?.()
+                  optionsRef.current.onLostLeadership?.()
                 }
               }
             }
@@ -141,15 +151,22 @@ export function useTabSync(options: {
         }
       }
       
-      // Try to claim leadership on mount (with random delay to avoid race)
-      const claimTimeout = setTimeout(() => {
-        claimLeadershipRef.current()
-      }, Math.random() * 300 + 100)
-      
       console.log('[TabSync] Initialized with tab ID:', tabIdRef.current)
       
+      // Request current time from leader (if any exists)
+      setTimeout(() => {
+        channel.postMessage({
+          type: 'REQUEST_TIME',
+          tabId: tabIdRef.current
+        } as TabSyncMessage)
+      }, 100)
+      
+      // Try to claim leadership after a short delay
+      setTimeout(() => {
+        claimLeadership()
+      }, Math.random() * 300 + 200)
+      
       return () => {
-        clearTimeout(claimTimeout)
         channel.close()
         channelRef.current = null
       }
@@ -158,7 +175,7 @@ export function useTabSync(options: {
       isLeaderRef.current = true
       setIsLeader(true)
     }
-  }, [setTimeLeft, onPreviewEnded, onLostLeadership])
+  }, [claimLeadership]) // claimLeadership is stable
   
   // Leader pings every 2 seconds to maintain leadership
   useEffect(() => {
@@ -172,11 +189,13 @@ export function useTabSync(options: {
     } as TabSyncMessage)
     
     const pingInterval = setInterval(() => {
-      channelRef.current?.postMessage({
-        type: 'LEADER_PING',
-        tabId: tabIdRef.current,
-        timestamp: Date.now()
-      } as TabSyncMessage)
+      if (channelRef.current) {
+        channelRef.current.postMessage({
+          type: 'LEADER_PING',
+          tabId: tabIdRef.current,
+          timestamp: Date.now()
+        } as TabSyncMessage)
+      }
     }, BROADCAST_INTERVAL_MS)
     
     return () => clearInterval(pingInterval)
@@ -189,27 +208,38 @@ export function useTabSync(options: {
     const checkInterval = setInterval(() => {
       const timeSinceLastPing = Date.now() - lastLeaderPingRef.current
       if (timeSinceLastPing > LEADER_TIMEOUT_MS) {
-        claimLeadershipRef.current()
+        claimLeadership()
       }
     }, 1000)
     
     return () => clearInterval(checkInterval)
-  }, [isLeader])
+  }, [isLeader, claimLeadership])
   
   // Broadcast timer updates periodically (leader only)
   useEffect(() => {
     if (!isLeader || !channelRef.current) return
     
+    const timeLeft = options.timeLeft // Get current value
+    
+    // Broadcast immediately when becoming leader
+    channelRef.current.postMessage({
+      type: 'TIMER_UPDATE',
+      timeLeft: timeLeft,
+      tabId: tabIdRef.current
+    } as TabSyncMessage)
+    
     const broadcastInterval = setInterval(() => {
-      channelRef.current?.postMessage({
-        type: 'TIMER_UPDATE',
-        timeLeft: timeLeft,
-        tabId: tabIdRef.current
-      } as TabSyncMessage)
+      if (channelRef.current) {
+        channelRef.current.postMessage({
+          type: 'TIMER_UPDATE',
+          timeLeft: optionsRef.current.timeLeft,
+          tabId: tabIdRef.current
+        } as TabSyncMessage)
+      }
     }, BROADCAST_INTERVAL_MS)
     
     return () => clearInterval(broadcastInterval)
-  }, [isLeader, timeLeft])
+  }, [isLeader, options.timeLeft])
   
   // Broadcast preview ended
   const broadcastPreviewEnded = useCallback(() => {
@@ -234,4 +264,3 @@ export function useTabSync(options: {
     broadcastProgressSaved
   }
 }
-
