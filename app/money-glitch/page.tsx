@@ -6,6 +6,20 @@ import { AppState, SectionKey, BlockReason, PrecheckResponse } from '@/types'
 import { useFingerprint, getStoredFingerprint } from '@/hooks/useFingerprint'
 import { useTabSync } from '@/hooks/useTabSync'
 
+// ============ DEBUG LOGGING ============
+const DEBUG = true
+const debugLog = (area: string, message: string, data?: any) => {
+  if (!DEBUG) return
+  const timestamp = new Date().toISOString().split('T')[1].slice(0, 12)
+  const style = 'background: #1a1a2e; color: #00ff88; padding: 2px 6px; border-radius: 3px;'
+  if (data !== undefined) {
+    console.log(`%c[${timestamp}] [${area}]`, style, message, data)
+  } else {
+    console.log(`%c[${timestamp}] [${area}]`, style, message)
+  }
+}
+// ======================================
+
 // Components
 import Onboarding from '@/components/Onboarding'
 import LoadingScreen from '@/components/LoadingScreen'
@@ -123,12 +137,20 @@ export default function MoneyGlitchPage() {
 
   // Check if preview already ended or onboarding was completed recently
   useEffect(() => {
+    debugLog('INIT', '🚀 Initial useEffect running')
+    
     // Only access localStorage/cookies on client side
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined') {
+      debugLog('INIT', '❌ Window undefined - SSR context')
+      return
+    }
     
     // Check if preview already ended
     const previewEndedLocal = localStorage.getItem('ft_preview_ended')
+    debugLog('INIT', 'localStorage ft_preview_ended:', previewEndedLocal)
+    
     if (previewEndedLocal === '1') {
+      debugLog('INIT', '⏹️ Preview already ended - showing ended screen')
       previewEndedRef.current = true
       setAppState('preview_ended')
       return
@@ -136,15 +158,18 @@ export default function MoneyGlitchPage() {
     
     // Check for stored expiry timestamp (from previous session/refresh)
     const storedExpiresAt = localStorage.getItem('ft_preview_expires_at')
+    debugLog('INIT', 'localStorage ft_preview_expires_at:', storedExpiresAt)
+    
     if (storedExpiresAt) {
       const expiresAtMs = parseInt(storedExpiresAt, 10)
       if (!isNaN(expiresAtMs)) {
         const now = Date.now()
         const remaining = Math.floor((expiresAtMs - now) / 1000)
+        debugLog('INIT', `Stored expiry: ${expiresAtMs}, now: ${now}, remaining: ${remaining}s`)
         
         if (remaining <= 0) {
           // Preview has expired
-          console.log('[Init] Stored preview has expired')
+          debugLog('INIT', '⏹️ Stored preview has expired')
           previewEndedRef.current = true
           setAppState('preview_ended')
           localStorage.setItem('ft_preview_ended', '1')
@@ -152,6 +177,7 @@ export default function MoneyGlitchPage() {
         }
         
         // Preview still valid - restore expiry timestamp and go directly to preview_active
+        debugLog('INIT', `✅ Restoring active preview with ${remaining}s remaining`)
         setPreviewExpiresAt(expiresAtMs)
         setTimeLeft(remaining)
         
@@ -169,10 +195,16 @@ export default function MoneyGlitchPage() {
     
     // Check if onboarding was completed recently (within 10 minutes)
     // This prevents showing pop-ups again on refresh
-    if (hasOnboardingCookie()) {
+    const hasOnboarding = hasOnboardingCookie()
+    debugLog('INIT', 'Has onboarding cookie:', hasOnboarding)
+    
+    if (hasOnboarding) {
+      debugLog('INIT', '➡️ Skipping onboarding, going to loading')
       setAppState('loading')
       return
     }
+    
+    debugLog('INIT', '📋 Showing onboarding (default state)')
   }, [])
 
   // Run precheck API call with fingerprint
@@ -206,30 +238,41 @@ export default function MoneyGlitchPage() {
   // Handle loading screen completion (3 seconds minimum)
   // This function processes the precheck result - only call when precheckResult is ready
   const processPrecheck = useCallback((result: PrecheckResponse) => {
+    debugLog('PROCESS', `processPrecheck called with status: ${result.status}`)
+    debugLog('PROCESS', `precheckProcessedRef.current: ${precheckProcessedRef.current}`)
+    
     // Prevent double-processing
     if (precheckProcessedRef.current) {
+      debugLog('PROCESS', '⚠️ Already processed - skipping')
       return
     }
     precheckProcessedRef.current = true
+    debugLog('PROCESS', '🔒 Set precheckProcessedRef to true')
     
     if (result.status === 'blocked') {
+      debugLog('PROCESS', `🚫 BLOCKED - reason: ${result.reason || 'error'}`)
       setBlockReason(result.reason || 'error')
       setAppState('blocked')
     } else if (result.status === 'ok') {
+      debugLog('PROCESS', '✅ Status OK - setting up preview')
       // Use absolute expiry timestamp from server
       // Use absolute expiry timestamp from server
       if (result.previewExpiresAt) {
         const expiresAtMs = new Date(result.previewExpiresAt).getTime()
         const now = Date.now()
         
+        debugLog('PROCESS', `Server expiry: ${result.previewExpiresAt}, parsed: ${expiresAtMs}, now: ${now}`)
+        
         // Validate that expiry is in the future
         if (expiresAtMs <= now) {
+          debugLog('PROCESS', '❌ Expiry is in the past!')
           setBlockReason('preview_used')
           setAppState('blocked')
           return
         }
         
         const remaining = Math.floor((expiresAtMs - now) / 1000)
+        debugLog('PROCESS', `Setting preview - remaining: ${remaining}s`)
         setPreviewExpiresAt(expiresAtMs)
         setTimeLeft(remaining)
         
@@ -239,6 +282,7 @@ export default function MoneyGlitchPage() {
         // Fallback: use duration from API
         const duration = result.previewDuration || PREVIEW_DURATION_SECONDS
         const expiresAtMs = Date.now() + (duration * 1000)
+        debugLog('PROCESS', `No server expiry - using duration: ${duration}s`)
         setPreviewExpiresAt(expiresAtMs)
         setTimeLeft(duration)
         localStorage.setItem('ft_preview_expires_at', expiresAtMs.toString())
@@ -248,9 +292,11 @@ export default function MoneyGlitchPage() {
         localStorage.setItem('ft_session_id', result.sessionId)
       }
       
+      debugLog('PROCESS', '🎉 Setting appState to preview_active')
       setAppState('preview_active')
     } else {
       // Unknown status - treat as error
+      debugLog('PROCESS', `❓ Unknown status: ${result.status}`)
       setBlockReason('error')
       setAppState('blocked')
     }
@@ -259,7 +305,13 @@ export default function MoneyGlitchPage() {
   // When entering loading state, start the precheck
   // Wait for fingerprint to be ready before making the precheck call
   useEffect(() => {
-    if (appState !== 'loading') return
+    if (appState !== 'loading') {
+      debugLog('PRECHECK', `Skipping - appState is "${appState}", not "loading"`)
+      return
+    }
+    
+    debugLog('PRECHECK', '🔄 Starting precheck flow')
+    debugLog('PRECHECK', `Fingerprint: ${fingerprint || 'null'}, loading: ${fingerprintLoading}`)
     
     // Reset processing flag when entering loading state
     precheckProcessedRef.current = false
@@ -275,11 +327,17 @@ export default function MoneyGlitchPage() {
     const maxFingerprintWait = 2000
     
     const runPrecheckNow = () => {
-      if (cancelled || precheckCompleted) return
+      if (cancelled || precheckCompleted) {
+        debugLog('PRECHECK', `⚠️ runPrecheckNow skipped - cancelled: ${cancelled}, completed: ${precheckCompleted}`)
+        return
+      }
+      
+      debugLog('PRECHECK', '📡 Making precheck API call...')
       
       // Set a timeout fallback in case precheck fails (10 seconds max wait)
       precheckTimeoutId = setTimeout(() => {
         if (!precheckCompleted && !cancelled) {
+          debugLog('PRECHECK', '❌ Precheck TIMEOUT after 10s')
           precheckCompleted = true
           setPrecheckResult({ status: 'blocked', reason: 'error' })
         }
@@ -287,13 +345,18 @@ export default function MoneyGlitchPage() {
       
       runPrecheck()
         .then((result) => {
+          debugLog('PRECHECK', '✅ Precheck API response:', result)
           if (!precheckCompleted && !cancelled) {
             precheckCompleted = true
             if (precheckTimeoutId) clearTimeout(precheckTimeoutId)
             setPrecheckResult(result)
+            debugLog('PRECHECK', '📦 setPrecheckResult called')
+          } else {
+            debugLog('PRECHECK', `⚠️ Result ignored - completed: ${precheckCompleted}, cancelled: ${cancelled}`)
           }
         })
         .catch((error) => {
+          debugLog('PRECHECK', '❌ Precheck API error:', error)
           if (!precheckCompleted && !cancelled) {
             precheckCompleted = true
             if (precheckTimeoutId) clearTimeout(precheckTimeoutId)
@@ -303,16 +366,23 @@ export default function MoneyGlitchPage() {
     }
     
     const checkFingerprint = () => {
-      if (cancelled) return
+      if (cancelled) {
+        debugLog('PRECHECK', '⚠️ checkFingerprint cancelled')
+        return
+      }
       
       const fp = fingerprint || getStoredFingerprint()
       const waited = Date.now() - fingerprintWaitStart
       
+      debugLog('PRECHECK', `Fingerprint check - fp: ${fp ? 'ready' : 'null'}, waited: ${waited}ms, loading: ${fingerprintLoading}`)
+      
       // If fingerprint ready or waited too long, proceed
       if (fp || waited >= maxFingerprintWait || !fingerprintLoading) {
+        debugLog('PRECHECK', '✅ Proceeding with precheck')
         runPrecheckNow()
       } else {
         // Wait a bit more for fingerprint
+        debugLog('PRECHECK', '⏳ Waiting for fingerprint...')
         fingerprintWaitId = setTimeout(checkFingerprint, 100)
       }
     }
@@ -321,6 +391,7 @@ export default function MoneyGlitchPage() {
     
     // Cleanup function - clears ALL timers
     return () => {
+      debugLog('PRECHECK', '🧹 Cleanup - cancelling precheck flow')
       cancelled = true
       precheckCompleted = true
       if (precheckTimeoutId) clearTimeout(precheckTimeoutId)
@@ -331,20 +402,29 @@ export default function MoneyGlitchPage() {
   // Monitor loading completion (3 seconds + precheck done)
   // This effect runs when either the timer needs checking OR when precheckResult arrives
   useEffect(() => {
-    if (appState !== 'loading' || !loadingStartTime) return
+    debugLog('LOADING', `Monitor effect - appState: ${appState}, loadingStartTime: ${loadingStartTime}, precheckResult: ${precheckResult ? 'present' : 'null'}`)
+    
+    if (appState !== 'loading' || !loadingStartTime) {
+      debugLog('LOADING', '⏭️ Skipping - not in loading state or no start time')
+      return
+    }
     
     // If no precheck result yet, do nothing - effect will re-run when precheckResult changes
     if (!precheckResult) {
+      debugLog('LOADING', '⏳ Waiting for precheck result...')
       return
     }
     
     const elapsed = Date.now() - loadingStartTime
+    debugLog('LOADING', `Elapsed: ${elapsed}ms, precheckResult status: ${precheckResult.status}`)
     
     // If minimum time not yet passed, schedule a check when it will be
     if (elapsed < 3000) {
       const remainingTime = 3000 - elapsed
+      debugLog('LOADING', `⏱️ Scheduling processPrecheck in ${remainingTime}ms`)
       
       const timerId = setTimeout(() => {
+        debugLog('LOADING', '⏰ Timer fired - calling processPrecheck')
         // By this time, precheckResult is available (we checked above)
         // Trigger state transition
         if (precheckResult) {
@@ -352,10 +432,14 @@ export default function MoneyGlitchPage() {
         }
       }, remainingTime)
       
-      return () => clearTimeout(timerId)
+      return () => {
+        debugLog('LOADING', '🧹 Clearing loading timer')
+        clearTimeout(timerId)
+      }
     }
     
     // Both conditions met: minimum time passed AND we have precheckResult
+    debugLog('LOADING', '✅ Both conditions met - calling processPrecheck immediately')
     processPrecheck(precheckResult)
     
   }, [appState, loadingStartTime, precheckResult, processPrecheck])
@@ -485,9 +569,87 @@ export default function MoneyGlitchPage() {
   // Get the component to render for current section
   const SectionComponent = SECTIONS_MAP[activeSection]
 
+  // Debug state for UI panel
+  const [showDebugPanel, setShowDebugPanel] = useState(false)
+  
+  // Toggle debug panel with keyboard shortcut (Ctrl+Shift+D)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+        setShowDebugPanel(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
   return (
     <ErrorBoundary>
     <div className="min-h-screen bg-[#050608]">
+      {/* DEBUG PANEL - Press Ctrl+Shift+D to toggle */}
+      {showDebugPanel && (
+        <div className="fixed top-4 right-4 z-[9999] bg-black/95 border border-yellow-500/50 rounded-lg p-4 text-xs font-mono max-w-sm shadow-xl">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-yellow-400 font-bold">🔧 DEBUG PANEL</span>
+            <button onClick={() => setShowDebugPanel(false)} className="text-zinc-500 hover:text-white">✕</button>
+          </div>
+          <div className="space-y-2 text-zinc-300">
+            <div>
+              <span className="text-zinc-500">appState:</span>{' '}
+              <span className={appState === 'preview_active' ? 'text-green-400' : appState === 'loading' ? 'text-yellow-400' : 'text-red-400'}>
+                {appState}
+              </span>
+            </div>
+            <div>
+              <span className="text-zinc-500">isTabLeader:</span>{' '}
+              <span className={isTabLeader ? 'text-green-400' : 'text-red-400'}>{String(isTabLeader)}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">fingerprint:</span>{' '}
+              <span className="text-blue-400">{fingerprint ? fingerprint.slice(0, 12) + '...' : 'null'}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">fingerprintLoading:</span>{' '}
+              <span className={fingerprintLoading ? 'text-yellow-400' : 'text-green-400'}>{String(fingerprintLoading)}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">precheckResult:</span>{' '}
+              <span className={precheckResult ? 'text-green-400' : 'text-yellow-400'}>{precheckResult ? precheckResult.status : 'null'}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">precheckProcessed:</span>{' '}
+              <span>{String(precheckProcessedRef.current)}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">timeLeft:</span>{' '}
+              <span className="text-cyan-400">{timeLeft}s</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">previewExpiresAt:</span>{' '}
+              <span className="text-purple-400">{previewExpiresAt ? new Date(previewExpiresAt).toLocaleTimeString() : 'null'}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">activeSection:</span>{' '}
+              <span>{activeSection}</span>
+            </div>
+            <div className="pt-2 border-t border-zinc-700 mt-2">
+              <button 
+                onClick={() => {
+                  localStorage.clear()
+                  document.cookie.split(";").forEach(c => {
+                    document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/")
+                  })
+                  window.location.reload()
+                }}
+                className="w-full py-1 px-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded"
+              >
+                🗑️ Clear All & Reload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Overlay screens - use AnimatePresence without mode="wait" to prevent blocking */}
       <AnimatePresence>
         {/* Onboarding */}

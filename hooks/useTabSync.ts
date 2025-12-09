@@ -2,6 +2,20 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 
+// ============ DEBUG LOGGING ============
+const DEBUG = true
+const debugLog = (message: string, data?: any) => {
+  if (!DEBUG) return
+  const timestamp = new Date().toISOString().split('T')[1].slice(0, 12)
+  const style = 'background: #2d1b4e; color: #ff88ff; padding: 2px 6px; border-radius: 3px;'
+  if (data !== undefined) {
+    console.log(`%c[${timestamp}] [TAB-SYNC]`, style, message, data)
+  } else {
+    console.log(`%c[${timestamp}] [TAB-SYNC]`, style, message)
+  }
+}
+// ======================================
+
 /**
  * BroadcastChannel-based multi-tab synchronization
  * Ensures timers stay in sync across all open tabs
@@ -53,9 +67,11 @@ export function useTabSync(options: {
   // Claim leadership function (stable - no deps)
   const claimLeadership = useCallback(() => {
     const timeSinceLastPing = Date.now() - lastLeaderPingRef.current
+    debugLog(`claimLeadership called - timeSinceLastPing: ${timeSinceLastPing}ms, lastPing: ${lastLeaderPingRef.current}`)
     
     if (timeSinceLastPing > LEADER_TIMEOUT_MS || lastLeaderPingRef.current === 0) {
       if (!isLeaderRef.current) {
+        debugLog('👑 CLAIMING LEADERSHIP!')
         isLeaderRef.current = true
         setIsLeader(true)
         optionsRef.current.onBecameLeader?.()
@@ -67,6 +83,7 @@ export function useTabSync(options: {
             if (storedExpiresAt) {
               const expiresAtMs = parseInt(storedExpiresAt, 10)
               if (!isNaN(expiresAtMs) && expiresAtMs > Date.now()) {
+                debugLog(`Restoring expiry on leadership: ${expiresAtMs}`)
                 optionsRef.current.setPreviewExpiresAt?.(expiresAtMs)
               }
             }
@@ -74,39 +91,55 @@ export function useTabSync(options: {
         }
         
         // Announce leadership
+        debugLog('📢 Broadcasting LEADER_CLAIM')
         channelRef.current?.postMessage({
           type: 'LEADER_CLAIM',
           tabId: tabIdRef.current,
           timestamp: Date.now()
         } as TabSyncMessage)
+      } else {
+        debugLog('Already leader - no action needed')
       }
+    } else {
+      debugLog(`Cannot claim - another leader active (last ping ${timeSinceLastPing}ms ago)`)
     }
   }, [])
   
   // Initialize BroadcastChannel ONCE
   useEffect(() => {
+    debugLog('🚀 BroadcastChannel init effect running')
+    debugLog(`initializedRef.current: ${initializedRef.current}`)
+    
     // Prevent double initialization in React Strict Mode
-    if (initializedRef.current) return
+    if (initializedRef.current) {
+      debugLog('⚠️ Already initialized - skipping')
+      return
+    }
     initializedRef.current = true
+    debugLog('✅ Set initializedRef to true')
     
     if (typeof window === 'undefined' || !('BroadcastChannel' in window)) {
       // BroadcastChannel not supported - this tab becomes leader by default
+      debugLog('❌ BroadcastChannel not supported - becoming leader by default')
       isLeaderRef.current = true
       setIsLeader(true)
       return
     }
     
     try {
+      debugLog('📡 Creating BroadcastChannel')
       const channel = new BroadcastChannel(CHANNEL_NAME)
       channelRef.current = channel
       
       channel.onmessage = (event: MessageEvent<TabSyncMessage>) => {
         const msg = event.data
+        debugLog(`📨 Received message: ${msg.type}`, msg)
         
         switch (msg.type) {
           case 'TIMER_UPDATE':
             if (msg.timeLeft !== undefined && msg.tabId !== tabIdRef.current) {
               // Sync timer from leader - always accept leader's time
+              debugLog(`⏱️ Syncing time from leader: ${msg.timeLeft}s`)
               optionsRef.current.setTimeLeft(msg.timeLeft)
             }
             break
@@ -114,6 +147,7 @@ export function useTabSync(options: {
           case 'EXPIRY_SYNC':
             // Sync absolute expiry timestamp from leader
             if (msg.expiresAt !== undefined && msg.tabId !== tabIdRef.current) {
+              debugLog(`📅 Syncing expiry from leader: ${msg.expiresAt}`)
               optionsRef.current.setPreviewExpiresAt?.(msg.expiresAt)
               // Also store in localStorage for persistence
               try {
@@ -125,6 +159,7 @@ export function useTabSync(options: {
           case 'REQUEST_TIME':
             // Another tab is asking for current time - if we're leader, respond
             if (isLeaderRef.current && msg.tabId !== tabIdRef.current) {
+              debugLog('📤 Responding to time request (we are leader)')
               channel.postMessage({
                 type: 'TIMER_UPDATE',
                 timeLeft: optionsRef.current.timeLeft,
@@ -143,6 +178,7 @@ export function useTabSync(options: {
             
           case 'PREVIEW_ENDED':
             if (msg.tabId !== tabIdRef.current) {
+              debugLog('⏹️ Preview ended broadcast received')
               optionsRef.current.onPreviewEnded()
             }
             break
@@ -150,9 +186,11 @@ export function useTabSync(options: {
           case 'LEADER_PING':
             // Another tab is the leader
             if (msg.tabId !== tabIdRef.current) {
+              debugLog('👑 Leader ping from another tab')
               lastLeaderPingRef.current = Date.now()
               if (isLeaderRef.current) {
                 // We were leader but someone else is now
+                debugLog('😢 Lost leadership to another tab')
                 isLeaderRef.current = false
                 setIsLeader(false)
                 optionsRef.current.onLostLeadership?.()
@@ -163,10 +201,12 @@ export function useTabSync(options: {
           case 'LEADER_CLAIM':
             // Another tab is claiming leadership
             if (msg.tabId !== tabIdRef.current) {
+              debugLog('🏴 Another tab claiming leadership')
               lastLeaderPingRef.current = Date.now()
               if (isLeaderRef.current && msg.timestamp) {
                 // Compare timestamps - older claim wins
                 if (msg.timestamp < Date.now() - 50) {
+                  debugLog('😢 Yielding leadership to older claim')
                   isLeaderRef.current = false
                   setIsLeader(false)
                   optionsRef.current.onLostLeadership?.()
@@ -177,6 +217,7 @@ export function useTabSync(options: {
             
           case 'PROGRESS_SAVED':
             // Another tab saved progress - we don't need to
+            debugLog('💾 Progress saved by another tab')
             break
         }
       }
@@ -184,34 +225,44 @@ export function useTabSync(options: {
       // Try to restore expiry timestamp from localStorage first
       try {
         const storedExpiresAt = localStorage.getItem('ft_preview_expires_at')
+        debugLog(`localStorage ft_preview_expires_at: ${storedExpiresAt}`)
         if (storedExpiresAt) {
           const expiresAtMs = parseInt(storedExpiresAt, 10)
           if (!isNaN(expiresAtMs) && expiresAtMs > Date.now()) {
+            debugLog(`✅ Restoring expiry from localStorage: ${expiresAtMs}`)
             optionsRef.current.setPreviewExpiresAt?.(expiresAtMs)
           }
         }
       } catch {}
       
       // Request current time from leader (if any exists)
+      const requestDelay = 100
+      debugLog(`⏳ Will request time in ${requestDelay}ms`)
       setTimeout(() => {
+        debugLog('📤 Sending REQUEST_TIME')
         channel.postMessage({
           type: 'REQUEST_TIME',
           tabId: tabIdRef.current
         } as TabSyncMessage)
-      }, 100)
+      }, requestDelay)
       
       // Try to claim leadership after a short delay
       // Use a longer random delay to reduce race conditions
+      const claimDelay = Math.random() * 500 + 300
+      debugLog(`⏳ Will attempt leadership claim in ${claimDelay.toFixed(0)}ms`)
       setTimeout(() => {
+        debugLog('🏴 Attempting to claim leadership')
         claimLeadership()
-      }, Math.random() * 500 + 300)
+      }, claimDelay)
       
       return () => {
+        debugLog('🧹 Cleanup - closing BroadcastChannel')
         initializedRef.current = false // Reset on cleanup for proper re-initialization
         channel.close()
         channelRef.current = null
       }
     } catch (error) {
+      debugLog('❌ BroadcastChannel error - becoming leader by default', error)
       isLeaderRef.current = true
       setIsLeader(true)
     }

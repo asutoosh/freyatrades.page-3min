@@ -69,8 +69,8 @@ bot/.env
 # Screenshots (from browser testing) - but allow favicons/images
 screenshots/
 *.png
-!public/favicon.png
-!public/sorcerer.png
+!public/favicon.jpg
+!public/sorcerer.jpg
 !app/icon.png
 *.jpg
 *.jpeg

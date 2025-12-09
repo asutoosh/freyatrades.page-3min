@@ -379,7 +379,7 @@ export default function MoneyGlitch() {
               {/* Header */}
               <div className="flex items-center gap-3 mb-4">
                 <img 
-                  src="/sorcerer.png" 
+                  src="/sorcerer.jpg" 
                   alt="Sorcerer profile avatar" 
                   className="w-10 h-10 rounded-full object-cover"
                 />
