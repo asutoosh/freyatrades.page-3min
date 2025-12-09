@@ -10,6 +10,8 @@ import { ObjectId, WithId, Document } from 'mongodb'
 export interface IPRecord {
   _id?: ObjectId
   ip: string
+  fingerprint?: string // Browser fingerprint for device tracking
+  fingerprintFirstSeen?: Date // When this fingerprint was first seen
   previewUsed: boolean
   timeConsumed: number // Total seconds consumed across all sessions
   previewStartedAt: Date | null // When current/last preview session started
@@ -24,6 +26,7 @@ export interface IPRecord {
 
 // In-memory fallback when database is not configured
 const memoryStore = new Map<string, IPRecord>()
+const fingerprintStore = new Map<string, IPRecord>() // Maps fingerprint -> IPRecord
 
 /**
  * Get IP record from database
@@ -453,6 +456,200 @@ export async function deleteIPRecord(ip: string): Promise<boolean> {
   } catch (error) {
     console.error('[IP Store] Error deleting IP record:', error)
     return false
+  }
+}
+
+/**
+ * Clear fingerprint from an IP record (for admin/testing)
+ * Also removes the fingerprint from all other records that have it
+ */
+export async function clearFingerprint(fingerprint: string): Promise<{ cleared: boolean; recordsUpdated: number }> {
+  if (!fingerprint) return { cleared: false, recordsUpdated: 0 }
+  
+  console.log(`[IP Store] Clearing fingerprint: ${fingerprint.substring(0, 8)}...`)
+  
+  if (!isDatabaseConfigured()) {
+    // Remove from fingerprint store
+    const existed = fingerprintStore.has(fingerprint)
+    fingerprintStore.delete(fingerprint)
+    
+    // Clear fingerprint from all memory records
+    let count = 0
+    for (const record of memoryStore.values()) {
+      if (record.fingerprint === fingerprint) {
+        record.fingerprint = undefined
+        record.fingerprintFirstSeen = undefined
+        record.previewUsed = false
+        record.timeConsumed = 0
+        count++
+      }
+    }
+    
+    console.log(`[IP Store] Cleared fingerprint from memory: ${existed}, records reset: ${count}`)
+    return { cleared: existed, recordsUpdated: count }
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    
+    // Update all records with this fingerprint - reset their preview status
+    const result = await collection.updateMany(
+      { fingerprint },
+      {
+        $unset: { fingerprint: '', fingerprintFirstSeen: '' },
+        $set: { 
+          previewUsed: false, 
+          timeConsumed: 0,
+          lastSeen: new Date() 
+        }
+      }
+    )
+    
+    console.log(`[IP Store] Cleared fingerprint from database, records updated: ${result.modifiedCount}`)
+    return { cleared: result.modifiedCount > 0, recordsUpdated: result.modifiedCount }
+  } catch (error) {
+    console.error('[IP Store] Error clearing fingerprint:', error)
+    return { cleared: false, recordsUpdated: 0 }
+  }
+}
+
+/**
+ * Get record by fingerprint - for detecting IP-switching attempts
+ */
+export async function getRecordByFingerprint(fingerprint: string): Promise<IPRecord | null> {
+  if (!fingerprint) return null
+  
+  if (!isDatabaseConfigured()) {
+    return fingerprintStore.get(fingerprint) || null
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    const record = await collection.findOne({ fingerprint })
+    return record as IPRecord | null
+  } catch (error) {
+    console.error('Error getting record by fingerprint:', error)
+    return fingerprintStore.get(fingerprint) || null
+  }
+}
+
+/**
+ * Save fingerprint to IP record - links device to IP record
+ */
+export async function saveFingerprint(ip: string, fingerprint: string): Promise<void> {
+  if (!fingerprint) return
+  
+  const now = new Date()
+  
+  if (!isDatabaseConfigured()) {
+    const existing = memoryStore.get(ip)
+    if (existing) {
+      // Only set fingerprint if not already set (first device wins)
+      if (!existing.fingerprint) {
+        existing.fingerprint = fingerprint
+        existing.fingerprintFirstSeen = now
+      }
+      // Also update fingerprint store
+      fingerprintStore.set(fingerprint, existing)
+    }
+    return
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    
+    // Update record with fingerprint (only if not already set)
+    await collection.updateOne(
+      { ip, fingerprint: { $exists: false } },
+      {
+        $set: { 
+          fingerprint,
+          fingerprintFirstSeen: now,
+          lastSeen: now 
+        }
+      }
+    )
+    
+    // Also update if fingerprint field is empty string
+    await collection.updateOne(
+      { ip, fingerprint: '' },  
+      {
+        $set: { 
+          fingerprint,
+          fingerprintFirstSeen: now,
+          lastSeen: now 
+        }
+      }
+    )
+  } catch (error) {
+    console.error('Error saving fingerprint:', error)
+  }
+}
+
+/**
+ * Check if fingerprint has already used preview (across any IP)
+ */
+export async function isFingerprintUsed(fingerprint: string): Promise<{ used: boolean; timeConsumed: number }> {
+  if (!fingerprint) return { used: false, timeConsumed: 0 }
+  
+  if (!isDatabaseConfigured()) {
+    const record = fingerprintStore.get(fingerprint)
+    if (record) {
+      return { 
+        used: record.previewUsed, 
+        timeConsumed: record.timeConsumed || 0 
+      }
+    }
+    return { used: false, timeConsumed: 0 }
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    const record = await collection.findOne({ fingerprint })
+    
+    if (record) {
+      return { 
+        used: record.previewUsed, 
+        timeConsumed: record.timeConsumed || 0 
+      }
+    }
+    return { used: false, timeConsumed: 0 }
+  } catch (error) {
+    console.error('Error checking fingerprint usage:', error)
+    return { used: false, timeConsumed: 0 }
+  }
+}
+
+/**
+ * Mark preview used by fingerprint (blocks all IPs with same fingerprint)
+ */
+export async function markFingerprintUsed(fingerprint: string): Promise<void> {
+  if (!fingerprint) return
+  
+  if (!isDatabaseConfigured()) {
+    const record = fingerprintStore.get(fingerprint)
+    if (record) {
+      record.previewUsed = true
+      record.timeConsumed = 180
+      record.lastSeen = new Date()
+    }
+    return
+  }
+
+  try {
+    const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    await collection.updateMany(
+      { fingerprint },
+      {
+        $set: { 
+          previewUsed: true, 
+          timeConsumed: 180,
+          lastSeen: new Date() 
+        }
+      }
+    )
+  } catch (error) {
+    console.error('Error marking fingerprint used:', error)
   }
 }
 

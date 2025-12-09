@@ -201,19 +201,28 @@ export default function MoneyGlitch() {
     return () => clearInterval(interval)
   }, [loading, checkForNewSignals])
 
-  // Handle scroll events
+  // Handle scroll events - throttled for performance
+  const scrollThrottleRef = useRef<NodeJS.Timeout | null>(null)
+  
   const handleScroll = useCallback(() => {
-    const container = scrollContainerRef.current
-    if (!container) return
+    // Throttle scroll events
+    if (scrollThrottleRef.current) return
     
-    // Check if at bottom (within 50px)
-    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50
-    isAtBottomRef.current = isAtBottom
-    
-    // Load more when near top (within 100px)
-    if (container.scrollTop < 100 && hasMore && !loadingMore) {
-      loadMore()
-    }
+    scrollThrottleRef.current = setTimeout(() => {
+      scrollThrottleRef.current = null
+      
+      const container = scrollContainerRef.current
+      if (!container) return
+      
+      // Check if at bottom (within 50px)
+      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50
+      isAtBottomRef.current = isAtBottom
+      
+      // Load more when near top (within 100px)
+      if (container.scrollTop < 100 && hasMore && !loadingMore) {
+        loadMore()
+      }
+    }, 100) // Throttle to max 10 events/second
   }, [hasMore, loadingMore, loadMore])
 
   // Loading state
@@ -361,17 +370,11 @@ export default function MoneyGlitch() {
             >
               {/* Header */}
               <div className="flex items-center gap-3 mb-4">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  signal.color === 'green' 
-                    ? 'bg-gradient-to-br from-green-400 to-green-600'
-                    : signal.color === 'red'
-                      ? 'bg-gradient-to-br from-red-400 to-red-600'
-                      : 'bg-gradient-to-br from-orange-400 to-red-600'
-                }`}>
-                  <span className="text-lg">
-                    {signal.color === 'green' ? '✅' : signal.color === 'red' ? '❌' : '🔥'}
-                  </span>
-                </div>
+                <img 
+                  src="/sorcerer.png" 
+                  alt="sorcerer" 
+                  className="w-10 h-10 rounded-full object-cover"
+                />
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-white">sorcerer</span>
                   <span className="admin-badge">admin</span>

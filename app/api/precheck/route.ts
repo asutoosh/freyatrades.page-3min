@@ -3,7 +3,9 @@ import {
   getIPRecord, 
   createIPRecord, 
   incrementVPNAttempts,
-  startPreviewSession
+  startPreviewSession,
+  isFingerprintUsed,
+  saveFingerprint
 } from '@/lib/db/ip-store-db'
 import { applyRateLimit } from '@/lib/rate-limiter'
 
@@ -182,49 +184,83 @@ export async function GET(req: NextRequest) {
     const ip = clientIP
     const userAgent = getUserAgent(req)
     
-    console.log('[Precheck] === START === IP:', ip)
-    console.log('[Precheck] Restricted countries:', RESTRICTED_COUNTRIES)
-    console.log('[Precheck] Available API keys:', IP2LOCATION_API_KEYS.length)
+    // Get fingerprint from query string (sent by client)
+    const fingerprint = req.nextUrl.searchParams.get('fp') || ''
     
-    // Step 1: Check for preview-ended cookie
+    console.log('[Precheck] === START === IP:', ip)
+    console.log('[Precheck] Fingerprint:', fingerprint ? fingerprint.substring(0, 8) + '...' : 'none')
+    console.log('[Precheck] Restricted countries:', RESTRICTED_COUNTRIES)
+    
+    // ========================================
+    // STEP 1: Check for preview-ended cookie (fastest check)
+    // ========================================
     const previewEndedCookie = req.cookies.get('ft_preview_ended')
     if (previewEndedCookie?.value === '1') {
       console.log('[Precheck] Blocked: preview_used (cookie)')
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
 
-    // Step 2: Get or create IP record
+    // ========================================
+    // STEP 2: Get fingerprint record (if fingerprint provided)
+    // ========================================
+    let fpRecord = null
+    let fpTimeConsumed = 0
+    if (fingerprint) {
+      const fpCheck = await isFingerprintUsed(fingerprint)
+      if (fpCheck.used) {
+        console.log('[Precheck] Blocked: fingerprint already used preview')
+        return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
+      }
+      fpTimeConsumed = fpCheck.timeConsumed
+      console.log('[Precheck] Fingerprint timeConsumed:', fpTimeConsumed)
+    }
+
+    // ========================================
+    // STEP 3: Get or create IP record
+    // ========================================
     let record = await getIPRecord(ip)
     
-    // Step 3: Check if preview already used for this IP
+    // Check if preview already used for this IP
     if (record?.previewUsed) {
       console.log('[Precheck] Blocked: preview_used (IP record)')
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
+    
+    const ipTimeConsumed = record?.timeConsumed || 0
 
-    // Step 3.5: Check if IP has consumed more than threshold (60 seconds)
-    const timeConsumed = record?.timeConsumed || 0
-    if (timeConsumed >= TIME_CONSUMED_THRESHOLD) {
-      console.log('[Precheck] Blocked: time_consumed - IP already watched', timeConsumed, 'seconds')
+    // ========================================
+    // STEP 4: Use MAX timeConsumed from IP AND fingerprint
+    // This catches users who switch IP but same device
+    // ========================================
+    const maxTimeConsumed = Math.max(ipTimeConsumed, fpTimeConsumed)
+    console.log('[Precheck] IP timeConsumed:', ipTimeConsumed, '| FP timeConsumed:', fpTimeConsumed, '| MAX:', maxTimeConsumed)
+    
+    if (maxTimeConsumed >= TIME_CONSUMED_THRESHOLD) {
+      console.log('[Precheck] Blocked: time_consumed exceeds threshold -', maxTimeConsumed, 'seconds')
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
 
-    // Step 4: Check VPN rate limit
+    // ========================================
+    // STEP 5: Check VPN rate limit
+    // ========================================
     const now = new Date()
     if (record?.vpnWindowEnd && record.vpnWindowEnd > now && record.vpnAttempts >= VPN_MAX_RETRIES) {
       console.log('[Precheck] Blocked: vpn_max_retries')
       return NextResponse.json({ status: 'blocked', reason: 'vpn_max_retries' })
     }
 
-    // Step 5: Lookup IP with IP2Location (with fallback to multiple keys)
+    // ========================================
+    // STEP 6: Lookup IP with IP2Location
+    // ========================================
     const ipInfo = await lookupIP(ip)
     
-    // Log if API error occurred
     if (ipInfo.error) {
-      console.warn('[Precheck] IP lookup had error:', ipInfo.error, 'but continuing with available data')
+      console.warn('[Precheck] IP lookup had error:', ipInfo.error, 'but continuing')
     }
     
-    // Step 6: Check for VPN ONLY (proxy allowed)
+    // ========================================
+    // STEP 7: Check for VPN
+    // ========================================
     if (ipInfo.isProxy) {
       console.log('[Precheck] VPN DETECTED!')
       
@@ -245,32 +281,46 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ status: 'blocked', reason: 'vpn_detected' })
     }
 
-    // Step 7: Check restricted country (location check)
+    // ========================================
+    // STEP 8: Check restricted country
+    // ========================================
     if (RESTRICTED_COUNTRIES.includes(ipInfo.countryCode)) {
       console.log('[Precheck] Blocked: restricted_country -', ipInfo.countryCode)
       return NextResponse.json({ status: 'blocked', reason: 'restricted_country' })
     }
 
-    // Step 8: Create IP record if doesn't exist
+    // ========================================
+    // STEP 9: Create IP record if doesn't exist
+    // ========================================
     if (!record) {
       record = await createIPRecord(ip, { userAgent, country: ipInfo.countryCode })
     }
 
-    // Step 9: Start preview session
+    // ========================================
+    // STEP 10: Start preview session and link fingerprint
+    // ========================================
     await startPreviewSession(ip)
+    
+    // Save fingerprint to link device to this IP record
+    if (fingerprint) {
+      await saveFingerprint(ip, fingerprint)
+      console.log('[Precheck] Linked fingerprint to IP:', ip)
+    }
 
-    // Calculate remaining preview time (subtract already consumed time)
-    const remainingDuration = Math.max(PREVIEW_DURATION - timeConsumed, 0)
+    // ========================================
+    // STEP 11: Calculate remaining time (use MAX consumed)
+    // ========================================
+    const remainingDuration = Math.max(PREVIEW_DURATION - maxTimeConsumed, 0)
     
     // All checks passed!
     console.log('[Precheck] === PASSED === Allowing preview')
-    console.log('[Precheck] Time already consumed:', timeConsumed, 'seconds')
+    console.log('[Precheck] Max time consumed:', maxTimeConsumed, 'seconds')
     console.log('[Precheck] Remaining duration:', remainingDuration, 'seconds')
     
     return NextResponse.json({
       status: 'ok',
       previewDuration: remainingDuration,
-      timeConsumed: timeConsumed,
+      timeConsumed: maxTimeConsumed,
     })
     
   } catch (error) {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SectionKey } from '@/types'
 import { SECTIONS, EXTERNAL_LINKS } from '@/lib/constants'
@@ -19,15 +19,32 @@ export default function MobileNav({ active, onChange, timeLeft }: MobileNavProps
   const seconds = timeLeft % 60
   const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`
 
+  // Lock body scroll when drawer is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden'
+      document.body.style.touchAction = 'none'
+    } else {
+      document.body.style.overflow = ''
+      document.body.style.touchAction = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+      document.body.style.touchAction = ''
+    }
+  }, [isOpen])
+
   return (
     <>
       {/* Mobile Header */}
       <header className="md:hidden sticky top-0 z-30 bg-[#0a0a0b]/95 backdrop-blur-sm border-b border-white/5">
         <div className="flex items-center justify-between px-4 py-3">
-          {/* Menu button */}
+          {/* Menu button - larger touch area for mobile */}
           <button
             onClick={() => setIsOpen(true)}
-            className="p-2 -ml-2 text-zinc-400 hover:text-white transition-colors"
+            className="p-3 -ml-3 text-zinc-400 hover:text-white active:text-white transition-colors touch-manipulation"
+            style={{ touchAction: 'manipulation' }}
+            aria-label="Open menu"
           >
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />

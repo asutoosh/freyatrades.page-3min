@@ -66,9 +66,16 @@ bot/.env
 # Azure
 .azure/
 
-# Screenshots (from browser testing)
+# Screenshots (from browser testing) - but allow favicons/images
 screenshots/
 *.png
+!public/favicon.png
+!public/sorcerer.png
+!app/icon.png
 *.jpg
 *.jpeg
 *.gif
+
+
+
+/*.md

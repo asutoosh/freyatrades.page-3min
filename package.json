@@ -11,6 +11,7 @@
     "bot:install": "cd bot && npm install"
   },
   "dependencies": {
+    "@fingerprintjs/fingerprintjs": "^5.0.1",
     "autoprefixer": "^10.4.19",
     "framer-motion": "^11.2.10",
     "mongodb": "^6.3.0",
