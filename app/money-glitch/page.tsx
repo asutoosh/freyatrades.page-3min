@@ -300,8 +300,8 @@ export default function MoneyGlitchPage() {
     setActiveSection(section)
   }, [])
 
-  // Render current section
-  const CurrentSection = SECTIONS_MAP[activeSection]
+  // Get the component to render for current section
+  const SectionComponent = SECTIONS_MAP[activeSection]
 
   return (
     <div className="min-h-screen bg-[#050608]">
@@ -361,13 +361,13 @@ export default function MoneyGlitchPage() {
             <main className="flex-1 overflow-hidden flex flex-col">
               {/* Money-Glitch section gets full height for chat layout */}
               {activeSection === 'money-glitch' ? (
-                <div key={activeSection} className="flex-1 overflow-hidden max-w-3xl w-full mx-auto">
-                  <CurrentSection />
+                <div key={`section-${activeSection}`} className="flex-1 overflow-hidden max-w-3xl w-full mx-auto">
+                  <SectionComponent key={activeSection} />
                 </div>
               ) : (
-                <div key={activeSection} className="flex-1 overflow-y-auto">
+                <div key={`section-${activeSection}`} className="flex-1 overflow-y-auto">
                   <div className="max-w-3xl mx-auto p-4 md:p-6">
-                    <CurrentSection />
+                    <SectionComponent key={activeSection} />
                   </div>
                 </div>
               )}

@@ -22,16 +22,18 @@ export default function Sidebar({ active, onChange, memberCount = 158 }: Sidebar
       {/* Navigation */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {SECTIONS.map((section) => (
-          <motion.button
+          <button
             key={section.id}
-            onClick={() => onChange(section.id)}
-            whileHover={{ x: 4 }}
-            whileTap={{ scale: 0.98 }}
+            type="button"
+            onClick={() => {
+              console.log('[Sidebar] Clicked:', section.id)
+              onChange(section.id)
+            }}
             className={`
-              w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all
+              w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all cursor-pointer select-none
               ${active === section.id 
                 ? 'bg-zinc-800/80 text-white' 
-                : 'text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200'
+                : 'text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200 hover:translate-x-1'
               }
             `}
           >
@@ -48,7 +50,7 @@ export default function Sidebar({ active, onChange, memberCount = 158 }: Sidebar
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
               </span>
             )}
-          </motion.button>
+          </button>
         ))}
       </nav>
 

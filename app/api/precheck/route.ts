@@ -21,7 +21,7 @@ const RESTRICTED_COUNTRIES = (process.env.RESTRICTED_COUNTRIES || 'IN')
 const PREVIEW_DURATION = Number(process.env.PREVIEW_DURATION_SECONDS || '180')
 const VPN_MAX_RETRIES = Number(process.env.VPN_MAX_RETRIES || '5')
 const VPN_RETRY_WINDOW_HOURS = Number(process.env.VPN_RETRY_WINDOW_HOURS || '2')
-const TIME_CONSUMED_THRESHOLD = Number(process.env.TIME_CONSUMED_THRESHOLD || '60') // Block if >60 seconds already consumed
+const TIME_CONSUMED_THRESHOLD = Number(process.env.TIME_CONSUMED_THRESHOLD || '180') // Block if >= 180 seconds (full preview) consumed
 
 // Get multiple IP2Location API keys (comma-separated for fallback)
 // Format: KEY1,KEY2,KEY3

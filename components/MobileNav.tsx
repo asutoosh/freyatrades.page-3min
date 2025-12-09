@@ -105,15 +105,16 @@ export default function MobileNav({ active, onChange, timeLeft }: MobileNavProps
               {/* Navigation */}
               <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
                 {SECTIONS.map((section) => (
-                  <motion.button
+                  <button
                     key={section.id}
+                    type="button"
                     onClick={() => {
+                      console.log('[MobileNav] Clicked:', section.id)
                       onChange(section.id)
                       setIsOpen(false)
                     }}
-                    whileTap={{ scale: 0.98 }}
                     className={`
-                      w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all
+                      w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all cursor-pointer select-none active:scale-[0.98]
                       ${active === section.id 
                         ? 'bg-zinc-800/80 text-white' 
                         : 'text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200'
@@ -133,7 +134,7 @@ export default function MobileNav({ active, onChange, timeLeft }: MobileNavProps
                         <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
                       </span>
                     )}
-                  </motion.button>
+                  </button>
                 ))}
               </nav>
 
