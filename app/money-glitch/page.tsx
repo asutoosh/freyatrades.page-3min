@@ -31,6 +31,7 @@ import MobileNav from '@/components/MobileNav'
 import TimerBanner from '@/components/TimerBanner'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import SectionLoader from '@/components/SectionLoader'
+import { motion } from 'framer-motion'
 
 // Sections
 import Welcome from '@/components/sections/Welcome'
@@ -80,6 +81,7 @@ export default function MoneyGlitchPage() {
   const [loadingStartTime, setLoadingStartTime] = useState<number | null>(null)
   const [progressSaved, setProgressSaved] = useState(false) // Track if 30-second save was made
   const [isTabLeader, setIsTabLeader] = useState(true) // Is this tab the leader for timer?
+  const [showErrorPopup, setShowErrorPopup] = useState(false) // Show error retry popup
   
   // Absolute timestamp for accurate timer (survives refresh/new tabs)
   const [previewExpiresAt, setPreviewExpiresAt] = useState<number | null>(null)
@@ -584,6 +586,22 @@ export default function MoneyGlitchPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
+  // Show error popup after 5 seconds if user might be stuck
+  // This gives users a way to retry if something goes wrong
+  useEffect(() => {
+    if (appState !== 'preview_active') return
+    
+    const timer = setTimeout(() => {
+      // Only show if user hasn't interacted (section still on money-glitch)
+      // This suggests they might be stuck
+      if (activeSection === 'money-glitch') {
+        setShowErrorPopup(true)
+      }
+    }, 2000) // Show after 2 seconds
+    
+    return () => clearTimeout(timer)
+  }, [appState, activeSection])
+
   return (
     <ErrorBoundary>
     <div className="min-h-screen bg-[#050608]">
@@ -721,6 +739,50 @@ export default function MoneyGlitchPage() {
               </Suspense>
             </main>
           </div>
+
+          {/* Error Retry Popup */}
+          <AnimatePresence>
+            {showErrorPopup && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
+              >
+                <motion.div
+                  initial={{ y: 20 }}
+                  animate={{ y: 0 }}
+                  className="bg-gradient-to-b from-[#141418] to-[#0f0f12] rounded-2xl border border-white/10 p-6 max-w-sm w-full shadow-2xl"
+                >
+                  <div className="text-center">
+                    <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-yellow-500/10 flex items-center justify-center">
+                      <span className="text-4xl">⚠️</span>
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">
+                      Something went wrong
+                    </h3>
+                    <p className="text-zinc-400 text-sm mb-6">
+                      We encountered an error loading the content. Please retry to continue.
+                    </p>
+                    <button
+                      onClick={() => {
+                        window.location.href = 'https://live.freyatrades.page'
+                      }}
+                      className="w-full py-3 rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-500 text-black font-bold hover:from-yellow-300 hover:to-yellow-400 transition-all"
+                    >
+                      🔄 Retry
+                    </button>
+                    <button
+                      onClick={() => setShowErrorPopup(false)}
+                      className="w-full mt-2 py-2 text-zinc-500 text-sm hover:text-white transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
     </div>
