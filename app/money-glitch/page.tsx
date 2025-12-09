@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { AppState, SectionKey, BlockReason, PrecheckResponse } from '@/types'
 import { useFingerprint, getStoredFingerprint } from '@/hooks/useFingerprint'
@@ -60,14 +60,23 @@ export default function MoneyGlitchPage() {
   const [precheckResult, setPrecheckResult] = useState<PrecheckResponse | null>(null)
   const [loadingStartTime, setLoadingStartTime] = useState<number | null>(null)
   const [progressSaved, setProgressSaved] = useState(false) // Track if 30-second save was made
-  const [previewStartTime, setPreviewStartTime] = useState<number | null>(null) // When preview started
   const [isTabLeader, setIsTabLeader] = useState(true) // Is this tab the leader for timer?
   
+  // NEW: Absolute timestamp for accurate timer (survives refresh/new tabs)
+  const [previewExpiresAt, setPreviewExpiresAt] = useState<number | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  
+  // Refs to prevent double-processing
+  const precheckProcessedRef = useRef(false)
+  const previewEndedRef = useRef(false)
+  
   // Get browser fingerprint for anti-bypass protection
-  const { visitorId: fingerprint } = useFingerprint()
+  const { visitorId: fingerprint, isLoading: fingerprintLoading } = useFingerprint()
 
   // End preview function (defined early for useTabSync)
   const endPreviewCallback = useCallback(() => {
+    if (previewEndedRef.current) return // Prevent double-ending
+    previewEndedRef.current = true
     setAppState('preview_ended')
     localStorage.setItem('ft_preview_ended', '1')
   }, [])
@@ -75,6 +84,11 @@ export default function MoneyGlitchPage() {
   // Stable callback for setting time from number value
   const setTimeLeftDirect = useCallback((time: number) => {
     setTimeLeft(time)
+  }, [])
+  
+  // Stable callback for setting expiry timestamp (for multi-tab sync)
+  const setExpiresAtDirect = useCallback((expiresAt: number) => {
+    setPreviewExpiresAt(expiresAt)
   }, [])
 
   // Stable callbacks for leader changes
@@ -88,10 +102,12 @@ export default function MoneyGlitchPage() {
     console.log('[Page] This tab lost leadership')
   }, [])
 
-  // Multi-tab synchronization - only leader tab runs timer and saves progress
+  // Multi-tab synchronization - uses absolute expiry timestamp
   const { isLeader, broadcastPreviewEnded, broadcastProgressSaved } = useTabSync({
     timeLeft,
     setTimeLeft: setTimeLeftDirect,
+    previewExpiresAt,
+    setPreviewExpiresAt: setExpiresAtDirect,
     onPreviewEnded: endPreviewCallback,
     onBecameLeader: handleBecameLeader,
     onLostLeadership: handleLostLeadership
@@ -110,8 +126,40 @@ export default function MoneyGlitchPage() {
     // Check if preview already ended
     const previewEndedLocal = localStorage.getItem('ft_preview_ended')
     if (previewEndedLocal === '1') {
+      previewEndedRef.current = true
       setAppState('preview_ended')
       return
+    }
+    
+    // Check for stored expiry timestamp (from previous session/refresh)
+    const storedExpiresAt = localStorage.getItem('ft_preview_expires_at')
+    if (storedExpiresAt) {
+      const expiresAtMs = parseInt(storedExpiresAt, 10)
+      if (!isNaN(expiresAtMs)) {
+        const now = Date.now()
+        const remaining = Math.floor((expiresAtMs - now) / 1000)
+        
+        if (remaining <= 0) {
+          // Preview has expired
+          console.log('[Init] Stored preview has expired')
+          previewEndedRef.current = true
+          setAppState('preview_ended')
+          localStorage.setItem('ft_preview_ended', '1')
+          return
+        }
+        
+        // Preview still valid - restore expiry timestamp
+        console.log('[Init] Restoring preview expiry from localStorage, remaining:', remaining, 'seconds')
+        setPreviewExpiresAt(expiresAtMs)
+        setTimeLeft(remaining)
+        
+        // Check if progress was already saved (elapsed > 30 seconds)
+        const elapsed = 180 - remaining
+        if (elapsed >= 30) {
+          setProgressSaved(true)
+          console.log('[Init] Progress already saved (elapsed:', elapsed, 'seconds)')
+        }
+      }
     }
     
     // Check if onboarding was completed recently (within 10 minutes)
@@ -155,6 +203,13 @@ export default function MoneyGlitchPage() {
   // Handle loading screen completion (3 seconds minimum)
   // This function processes the precheck result - only call when precheckResult is ready
   const processPrecheck = useCallback((result: PrecheckResponse) => {
+    // Prevent double-processing
+    if (precheckProcessedRef.current) {
+      console.log('[Loading] Precheck already processed, skipping')
+      return
+    }
+    precheckProcessedRef.current = true
+    
     console.log('[Loading] Processing precheck result:', result)
     
     if (result.status === 'blocked') {
@@ -165,7 +220,22 @@ export default function MoneyGlitchPage() {
       const duration = result.previewDuration || 180
       setPreviewDuration(duration)
       setTimeLeft(duration)
-      setPreviewStartTime(Date.now())
+      
+      // NEW: Use absolute expiry timestamp from server
+      if (result.previewExpiresAt) {
+        const expiresAtMs = new Date(result.previewExpiresAt).getTime()
+        setPreviewExpiresAt(expiresAtMs)
+        console.log('[Loading] Preview expires at:', new Date(expiresAtMs).toISOString())
+        
+        // Store in localStorage for persistence across refreshes
+        localStorage.setItem('ft_preview_expires_at', expiresAtMs.toString())
+      }
+      
+      if (result.sessionId) {
+        setSessionId(result.sessionId)
+        localStorage.setItem('ft_session_id', result.sessionId)
+      }
+      
       setAppState('preview_active')
     } else {
       // Unknown status - treat as error
@@ -176,45 +246,69 @@ export default function MoneyGlitchPage() {
   }, [])
 
   // When entering loading state, start the precheck
+  // Wait for fingerprint to be ready before making the precheck call
   useEffect(() => {
     if (appState === 'loading') {
+      // Reset processing flag when entering loading state
+      precheckProcessedRef.current = false
       setLoadingStartTime(Date.now())
       setPrecheckResult(null) // Reset previous result
       
-      let precheckCompleted = false
+      // Wait for fingerprint to be ready (max 2 seconds)
+      const fingerprintWaitStart = Date.now()
+      const maxFingerprintWait = 2000
       
-      // Set a timeout fallback in case precheck fails (10 seconds max wait)
-      const timeoutId = setTimeout(() => {
-        if (!precheckCompleted) {
-          console.error('[Loading] Precheck timeout - treating as error')
-          precheckCompleted = true
-          setPrecheckResult({ status: 'blocked', reason: 'error' })
+      const checkAndRunPrecheck = () => {
+        const fp = fingerprint || getStoredFingerprint()
+        const waited = Date.now() - fingerprintWaitStart
+        
+        // If fingerprint ready or waited too long, proceed
+        if (fp || waited >= maxFingerprintWait || !fingerprintLoading) {
+          console.log('[Loading] Starting precheck with fingerprint:', fp ? 'yes' : 'no')
+          
+          let precheckCompleted = false
+          
+          // Set a timeout fallback in case precheck fails (10 seconds max wait)
+          const timeoutId = setTimeout(() => {
+            if (!precheckCompleted) {
+              console.error('[Loading] Precheck timeout - treating as error')
+              precheckCompleted = true
+              setPrecheckResult({ status: 'blocked', reason: 'error' })
+            }
+          }, 10000)
+          
+          runPrecheck()
+            .then((result) => {
+              if (!precheckCompleted) {
+                precheckCompleted = true
+                clearTimeout(timeoutId)
+                setPrecheckResult(result)
+              }
+            })
+            .catch((error) => {
+              if (!precheckCompleted) {
+                precheckCompleted = true
+                clearTimeout(timeoutId)
+                console.error('[Loading] Precheck failed:', error)
+                setPrecheckResult({ status: 'blocked', reason: 'error' })
+              }
+            })
+          
+          return () => {
+            clearTimeout(timeoutId)
+            precheckCompleted = true
+          }
+        } else {
+          // Wait a bit more for fingerprint
+          console.log('[Loading] Waiting for fingerprint...')
+          const waitTimer = setTimeout(checkAndRunPrecheck, 100)
+          return () => clearTimeout(waitTimer)
         }
-      }, 10000)
-      
-      runPrecheck()
-        .then((result) => {
-          if (!precheckCompleted) {
-            precheckCompleted = true
-            clearTimeout(timeoutId)
-            setPrecheckResult(result)
-          }
-        })
-        .catch((error) => {
-          if (!precheckCompleted) {
-            precheckCompleted = true
-            clearTimeout(timeoutId)
-            console.error('[Loading] Precheck failed:', error)
-            setPrecheckResult({ status: 'blocked', reason: 'error' })
-          }
-        })
-      
-      return () => {
-        clearTimeout(timeoutId)
-        precheckCompleted = true
       }
+      
+      return checkAndRunPrecheck()
     }
-  }, [appState, runPrecheck])
+  }, [appState, runPrecheck, fingerprint, fingerprintLoading])
 
   // Monitor loading completion (3 seconds + precheck done)
   // This effect runs when either the timer needs checking OR when precheckResult arrives
@@ -251,47 +345,69 @@ export default function MoneyGlitchPage() {
     
   }, [appState, loadingStartTime, precheckResult, processPrecheck])
 
-  // Countdown timer with 30-second save (only leader tab runs this)
+  // Countdown timer using absolute expiry timestamp
+  // ALL tabs run this timer for responsiveness, but only leader saves progress
   useEffect(() => {
-    if (appState !== 'preview_active' || !previewStartTime) return
-    // Only leader tab runs the timer countdown and saves progress
-    if (!isTabLeader) {
-      console.log('[Timer] Not leader - skipping timer logic')
-      return
-    }
+    if (appState !== 'preview_active' || !previewExpiresAt) return
+    
+    console.log('[Timer] Starting timer, expires at:', new Date(previewExpiresAt).toISOString())
     
     const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        // Calculate how many seconds have elapsed in this session
-        const elapsed = Math.floor((Date.now() - previewStartTime) / 1000)
-        
-        // Save progress at 30 seconds (only once, only leader)
-        if (elapsed >= 30 && !progressSaved) {
-          setProgressSaved(true)
-          saveProgress(30, 'threshold')
-          broadcastProgressSaved()
+      const now = Date.now()
+      const remaining = Math.max(0, Math.floor((previewExpiresAt - now) / 1000))
+      
+      setTimeLeft(remaining)
+      
+      // Calculate elapsed time for progress saving
+      const elapsed = 180 - remaining
+      
+      // Save progress at 30 seconds (only once, only leader)
+      if (elapsed >= 30 && !progressSaved && isTabLeader) {
+        setProgressSaved(true)
+        saveProgress(30, 'threshold')
+        broadcastProgressSaved()
+      }
+      
+      // End preview when time runs out
+      if (remaining <= 0) {
+        clearInterval(timer)
+        // Save final progress before ending (only leader)
+        if (isTabLeader) {
+          saveProgress(180, 'unload')
         }
-        
-        if (prev <= 1) {
-          clearInterval(timer)
-          // Save final progress before ending (only leader)
-          const finalElapsed = Math.floor((Date.now() - previewStartTime) / 1000)
-          saveProgress(finalElapsed, 'unload')
-          // End preview
-          endPreview()
-          return 0
-        }
-        return prev - 1
-      })
+        endPreview()
+      }
     }, 1000)
     
+    // Run immediately to set initial time
+    const now = Date.now()
+    const initialRemaining = Math.max(0, Math.floor((previewExpiresAt - now) / 1000))
+    setTimeLeft(initialRemaining)
+    
+    // Check if already expired
+    if (initialRemaining <= 0) {
+      clearInterval(timer)
+      endPreview()
+    }
+    
     return () => clearInterval(timer)
-  }, [appState, previewStartTime, progressSaved, saveProgress, isTabLeader, broadcastProgressSaved])
+  }, [appState, previewExpiresAt, progressSaved, saveProgress, isTabLeader, broadcastProgressSaved])
 
   // End preview function
-  const endPreview = async () => {
+  const endPreview = useCallback(async () => {
+    // Prevent double-ending
+    if (previewEndedRef.current) {
+      console.log('[Preview] Already ended, skipping')
+      return
+    }
+    previewEndedRef.current = true
+    
     setAppState('preview_ended')
     localStorage.setItem('ft_preview_ended', '1')
+    
+    // Clear stored expiry
+    localStorage.removeItem('ft_preview_expires_at')
+    localStorage.removeItem('ft_session_id')
     
     // Broadcast to other tabs that preview ended
     broadcastPreviewEnded()
@@ -309,11 +425,11 @@ export default function MoneyGlitchPage() {
         console.error('Failed to mark preview as ended:', error)
       }
     }
-  }
+  }, [broadcastPreviewEnded, isTabLeader, fingerprint])
 
   // Save progress on tab close/unload (only leader saves)
   useEffect(() => {
-    if (appState !== 'preview_active' || !previewStartTime) return
+    if (appState !== 'preview_active' || !previewExpiresAt) return
     
     const handleUnload = () => {
       // Only leader tab saves progress on unload to prevent double-counting
@@ -322,8 +438,9 @@ export default function MoneyGlitchPage() {
         return
       }
       
-      // Calculate elapsed time
-      const elapsed = Math.floor((Date.now() - previewStartTime) / 1000)
+      // Calculate elapsed time from absolute timestamp
+      const remaining = Math.max(0, Math.floor((previewExpiresAt - Date.now()) / 1000))
+      const elapsed = 180 - remaining
       
       // Use sendBeacon for reliable unload tracking (with Blob for proper content-type)
       const data = JSON.stringify({ secondsWatched: elapsed, trigger: 'unload' })
@@ -338,7 +455,7 @@ export default function MoneyGlitchPage() {
       window.removeEventListener('beforeunload', handleUnload)
       window.removeEventListener('pagehide', handleUnload)
     }
-  }, [appState, previewStartTime, isTabLeader])
+  }, [appState, previewExpiresAt, isTabLeader])
 
   // Handle onboarding completion
   const handleOnboardingComplete = () => {
@@ -360,7 +477,8 @@ export default function MoneyGlitchPage() {
 
   return (
     <div className="min-h-screen bg-[#050608]">
-      <AnimatePresence mode="wait">
+      {/* Overlay screens - use AnimatePresence without mode="wait" to prevent blocking */}
+      <AnimatePresence>
         {/* Onboarding */}
         {appState === 'onboarding' && (
           <Onboarding
@@ -416,13 +534,13 @@ export default function MoneyGlitchPage() {
             <main className="flex-1 min-h-0 flex flex-col overflow-auto">
               {/* Money-Glitch section gets full height for chat layout */}
               {activeSection === 'money-glitch' ? (
-                <div key={`section-${activeSection}`} className="flex-1 min-h-0 flex flex-col max-w-3xl w-full mx-auto">
-                  <SectionComponent key={activeSection} />
+                <div className="flex-1 min-h-0 flex flex-col max-w-3xl w-full mx-auto">
+                  <SectionComponent />
                 </div>
               ) : (
-                <div key={`section-${activeSection}`} className="flex-1 overflow-y-auto overscroll-contain">
+                <div className="flex-1 overflow-y-auto overscroll-contain">
                   <div className="max-w-3xl mx-auto p-4 md:p-6">
-                    <SectionComponent key={activeSection} />
+                    <SectionComponent />
                   </div>
                 </div>
               )}

@@ -1,10 +1,18 @@
 /**
  * IP Access Store - Azure Cosmos DB Implementation
  * Tracks IP addresses for preview access control
+ * 
+ * IMPORTANT: Uses absolute timestamps for accurate time tracking
+ * - previewStartedAt: When the preview session first started (never changes once set)
+ * - previewExpiresAt: When the preview expires (previewStartedAt + 180 seconds)
+ * - This prevents double-counting and race conditions
  */
 
 import { getCollection, isDatabaseConfigured, COLLECTIONS } from './mongodb'
 import { ObjectId, WithId, Document } from 'mongodb'
+
+// Preview duration in seconds
+const PREVIEW_DURATION_SECONDS = 180
 
 // IP Record interface
 export interface IPRecord {
@@ -13,8 +21,12 @@ export interface IPRecord {
   fingerprint?: string // Browser fingerprint for device tracking
   fingerprintFirstSeen?: Date // When this fingerprint was first seen
   previewUsed: boolean
-  timeConsumed: number // Total seconds consumed across all sessions
-  previewStartedAt: Date | null // When current/last preview session started
+  // NEW: Absolute timestamp approach
+  previewStartedAt: Date | null // When preview FIRST started (immutable once set)
+  previewExpiresAt: Date | null // When preview expires (startedAt + 180s)
+  sessionId?: string // Unique session ID to prevent duplicate saves
+  // DEPRECATED: timeConsumed - kept for backward compatibility but not used for new logic
+  timeConsumed: number // Legacy field - calculated from timestamps now
   cookieSaved: boolean // Whether 30-second cookie was saved
   vpnAttempts: number
   vpnWindowEnd: Date | null
@@ -27,6 +39,51 @@ export interface IPRecord {
 // In-memory fallback when database is not configured
 const memoryStore = new Map<string, IPRecord>()
 const fingerprintStore = new Map<string, IPRecord>() // Maps fingerprint -> IPRecord
+
+/**
+ * Generate a unique session ID
+ */
+function generateSessionId(): string {
+  return `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+}
+
+/**
+ * Calculate time consumed from absolute timestamps
+ */
+export function calculateTimeConsumed(record: IPRecord | null): number {
+  if (!record || !record.previewStartedAt) return 0
+  
+  const startTime = new Date(record.previewStartedAt).getTime()
+  const now = Date.now()
+  const elapsed = Math.floor((now - startTime) / 1000)
+  
+  // Cap at preview duration
+  return Math.min(elapsed, PREVIEW_DURATION_SECONDS)
+}
+
+/**
+ * Calculate remaining time from absolute timestamps
+ */
+export function calculateRemainingTime(record: IPRecord | null): number {
+  if (!record || !record.previewExpiresAt) return PREVIEW_DURATION_SECONDS
+  
+  const expiresAt = new Date(record.previewExpiresAt).getTime()
+  const now = Date.now()
+  const remaining = Math.floor((expiresAt - now) / 1000)
+  
+  return Math.max(0, remaining)
+}
+
+/**
+ * Check if preview has expired based on absolute timestamp
+ */
+export function isPreviewExpired(record: IPRecord | null): boolean {
+  if (!record) return false
+  if (record.previewUsed) return true
+  if (!record.previewExpiresAt) return false
+  
+  return new Date(record.previewExpiresAt).getTime() <= Date.now()
+}
 
 /**
  * Get IP record from database
@@ -60,6 +117,8 @@ export async function createIPRecord(
     previewUsed: false,
     timeConsumed: 0,
     previewStartedAt: null,
+    previewExpiresAt: null,
+    sessionId: undefined,
     cookieSaved: false,
     vpnAttempts: 0,
     vpnWindowEnd: null,
@@ -123,24 +182,28 @@ export async function updateIPRecord(
  * Mark preview as used for IP
  */
 export async function markPreviewUsed(ip: string): Promise<void> {
+  const now = new Date()
+  
   // Fallback to memory if DB not configured
   if (!isDatabaseConfigured()) {
     const existing = memoryStore.get(ip)
     if (existing) {
       existing.previewUsed = true
       existing.timeConsumed = 180 // Full 3 minutes
-      existing.lastSeen = new Date()
+      existing.lastSeen = now
     } else {
       memoryStore.set(ip, {
         ip,
         previewUsed: true,
         timeConsumed: 180,
         previewStartedAt: null,
+        previewExpiresAt: null,
+        sessionId: undefined,
         cookieSaved: true,
         vpnAttempts: 0,
         vpnWindowEnd: null,
-        firstSeen: new Date(),
-        lastSeen: new Date(),
+        firstSeen: now,
+        lastSeen: now,
       })
     }
     return
@@ -154,11 +217,12 @@ export async function markPreviewUsed(ip: string): Promise<void> {
         $set: { 
           previewUsed: true, 
           timeConsumed: 180,
-          lastSeen: new Date() 
+          lastSeen: now 
         },
         $setOnInsert: {
-          firstSeen: new Date(),
+          firstSeen: now,
           previewStartedAt: null,
+          previewExpiresAt: null,
           cookieSaved: true,
           vpnAttempts: 0,
           vpnWindowEnd: null,
@@ -179,40 +243,107 @@ export async function markPreviewUsed(ip: string): Promise<void> {
 
 /**
  * Start a preview session - records when user starts viewing
+ * IMPORTANT: Only sets previewStartedAt if not already set (immutable once started)
+ * Returns the session info including expiry time
  */
-export async function startPreviewSession(ip: string): Promise<void> {
+export async function startPreviewSession(ip: string): Promise<{
+  sessionId: string
+  previewStartedAt: Date
+  previewExpiresAt: Date
+  isNewSession: boolean
+}> {
   const now = new Date()
+  const expiresAt = new Date(now.getTime() + PREVIEW_DURATION_SECONDS * 1000)
+  const newSessionId = generateSessionId()
   
   if (!isDatabaseConfigured()) {
     const existing = memoryStore.get(ip)
     if (existing) {
-      existing.previewStartedAt = now
+      // Only set start time if not already set (preserve original start)
+      if (!existing.previewStartedAt) {
+        existing.previewStartedAt = now
+        existing.previewExpiresAt = expiresAt
+        existing.sessionId = newSessionId
+        existing.lastSeen = now
+        return {
+          sessionId: newSessionId,
+          previewStartedAt: now,
+          previewExpiresAt: expiresAt,
+          isNewSession: true
+        }
+      }
+      // Return existing session info
       existing.lastSeen = now
+      return {
+        sessionId: existing.sessionId || newSessionId,
+        previewStartedAt: existing.previewStartedAt,
+        previewExpiresAt: existing.previewExpiresAt || expiresAt,
+        isNewSession: false
+      }
     }
-    return
+    return {
+      sessionId: newSessionId,
+      previewStartedAt: now,
+      previewExpiresAt: expiresAt,
+      isNewSession: true
+    }
   }
 
   try {
     const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    
+    // First check if session already exists
+    const existing = await collection.findOne({ ip })
+    
+    if (existing?.previewStartedAt) {
+      // Session already started - return existing times
+      await collection.updateOne(
+        { ip },
+        { $set: { lastSeen: now } }
+      )
+      return {
+        sessionId: existing.sessionId || newSessionId,
+        previewStartedAt: new Date(existing.previewStartedAt),
+        previewExpiresAt: existing.previewExpiresAt ? new Date(existing.previewExpiresAt) : expiresAt,
+        isNewSession: false
+      }
+    }
+    
+    // New session - set start and expiry times
     await collection.updateOne(
       { ip },
       {
         $set: { 
           previewStartedAt: now,
+          previewExpiresAt: expiresAt,
+          sessionId: newSessionId,
           lastSeen: now 
         }
       }
     )
+    
+    return {
+      sessionId: newSessionId,
+      previewStartedAt: now,
+      previewExpiresAt: expiresAt,
+      isNewSession: true
+    }
   } catch (error) {
     console.error('Error starting preview session:', error)
+    return {
+      sessionId: newSessionId,
+      previewStartedAt: now,
+      previewExpiresAt: expiresAt,
+      isNewSession: true
+    }
   }
 }
 
 /**
- * Save at 30 seconds - marks cookie saved and updates time consumed
- * Called when user has watched for 30 seconds
+ * Save at 30 seconds - marks cookie saved
+ * NOTE: No longer increments timeConsumed - time is calculated from absolute timestamps
  */
-export async function saveAt30Seconds(ip: string, secondsWatched: number): Promise<{ success: boolean; shouldSetCookie: boolean }> {
+export async function saveAt30Seconds(ip: string, _secondsWatched: number): Promise<{ success: boolean; shouldSetCookie: boolean }> {
   const now = new Date()
   
   if (!isDatabaseConfigured()) {
@@ -221,12 +352,12 @@ export async function saveAt30Seconds(ip: string, secondsWatched: number): Promi
       // Only save if not already saved
       if (!existing.cookieSaved) {
         existing.cookieSaved = true
-        existing.timeConsumed = (existing.timeConsumed || 0) + secondsWatched
         existing.lastSeen = now
+        // Update timeConsumed from absolute timestamp for backward compatibility
+        existing.timeConsumed = calculateTimeConsumed(existing)
         return { success: true, shouldSetCookie: true }
       }
-      // Already saved, just update time
-      existing.timeConsumed = (existing.timeConsumed || 0) + secondsWatched
+      // Already saved
       existing.lastSeen = now
       return { success: true, shouldSetCookie: false }
     }
@@ -240,15 +371,16 @@ export async function saveAt30Seconds(ip: string, secondsWatched: number): Promi
     const record = await collection.findOne({ ip })
     const alreadySaved = record?.cookieSaved || false
     
+    // Calculate time consumed from absolute timestamp
+    const timeConsumed = calculateTimeConsumed(record)
+    
     await collection.updateOne(
       { ip },
       {
         $set: { 
           cookieSaved: true,
+          timeConsumed: timeConsumed, // Set absolute value, not increment
           lastSeen: now 
-        },
-        $inc: {
-          timeConsumed: secondsWatched
         }
       }
     )
@@ -262,14 +394,16 @@ export async function saveAt30Seconds(ip: string, secondsWatched: number): Promi
 
 /**
  * Update time consumed for an IP
+ * NOTE: Now calculates from absolute timestamp instead of incrementing
  */
-export async function updateTimeConsumed(ip: string, additionalSeconds: number): Promise<void> {
+export async function updateTimeConsumed(ip: string, _additionalSeconds: number): Promise<void> {
   const now = new Date()
   
   if (!isDatabaseConfigured()) {
     const existing = memoryStore.get(ip)
     if (existing) {
-      existing.timeConsumed = (existing.timeConsumed || 0) + additionalSeconds
+      // Calculate from absolute timestamp
+      existing.timeConsumed = calculateTimeConsumed(existing)
       existing.lastSeen = now
     }
     return
@@ -277,11 +411,16 @@ export async function updateTimeConsumed(ip: string, additionalSeconds: number):
 
   try {
     const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+    const record = await collection.findOne({ ip })
+    const timeConsumed = calculateTimeConsumed(record)
+    
     await collection.updateOne(
       { ip },
       {
-        $inc: { timeConsumed: additionalSeconds },
-        $set: { lastSeen: now }
+        $set: { 
+          timeConsumed: timeConsumed, // Set absolute value
+          lastSeen: now 
+        }
       }
     )
   } catch (error) {
@@ -291,20 +430,55 @@ export async function updateTimeConsumed(ip: string, additionalSeconds: number):
 
 /**
  * Get time consumed for an IP
+ * NOTE: Now calculates from absolute timestamp
  */
 export async function getTimeConsumed(ip: string): Promise<number> {
   if (!isDatabaseConfigured()) {
     const existing = memoryStore.get(ip)
-    return existing?.timeConsumed || 0
+    return calculateTimeConsumed(existing || null)
   }
 
   try {
     const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
     const record = await collection.findOne({ ip })
-    return record?.timeConsumed || 0
+    return calculateTimeConsumed(record as IPRecord | null)
   } catch (error) {
     console.error('Error getting time consumed:', error)
     return 0
+  }
+}
+
+/**
+ * Get preview session info for an IP
+ * Returns timing information for accurate client-side countdown
+ */
+export async function getPreviewSessionInfo(ip: string): Promise<{
+  previewStartedAt: Date | null
+  previewExpiresAt: Date | null
+  remainingSeconds: number
+  isExpired: boolean
+} | null> {
+  let record: IPRecord | null = null
+  
+  if (!isDatabaseConfigured()) {
+    record = memoryStore.get(ip) || null
+  } else {
+    try {
+      const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
+      record = await collection.findOne({ ip }) as IPRecord | null
+    } catch (error) {
+      console.error('Error getting preview session info:', error)
+      return null
+    }
+  }
+  
+  if (!record) return null
+  
+  return {
+    previewStartedAt: record.previewStartedAt ? new Date(record.previewStartedAt) : null,
+    previewExpiresAt: record.previewExpiresAt ? new Date(record.previewExpiresAt) : null,
+    remainingSeconds: calculateRemainingTime(record),
+    isExpired: isPreviewExpired(record)
   }
 }
 
@@ -329,6 +503,8 @@ export async function incrementVPNAttempts(
         previewUsed: false,
         timeConsumed: 0,
         previewStartedAt: null,
+        previewExpiresAt: null,
+        sessionId: undefined,
         cookieSaved: false,
         vpnAttempts: 1,
         vpnWindowEnd: newWindowEnd,
@@ -588,19 +764,22 @@ export async function saveFingerprint(ip: string, fingerprint: string): Promise<
 
 /**
  * Check if fingerprint has already used preview (across any IP)
+ * Uses absolute timestamps for accurate time calculation
  */
-export async function isFingerprintUsed(fingerprint: string): Promise<{ used: boolean; timeConsumed: number }> {
-  if (!fingerprint) return { used: false, timeConsumed: 0 }
+export async function isFingerprintUsed(fingerprint: string): Promise<{ used: boolean; timeConsumed: number; isExpired: boolean }> {
+  if (!fingerprint) return { used: false, timeConsumed: 0, isExpired: false }
   
   if (!isDatabaseConfigured()) {
     const record = fingerprintStore.get(fingerprint)
     if (record) {
+      const expired = isPreviewExpired(record)
       return { 
-        used: record.previewUsed, 
-        timeConsumed: record.timeConsumed || 0 
+        used: record.previewUsed || expired, 
+        timeConsumed: calculateTimeConsumed(record),
+        isExpired: expired
       }
     }
-    return { used: false, timeConsumed: 0 }
+    return { used: false, timeConsumed: 0, isExpired: false }
   }
 
   try {
@@ -608,15 +787,17 @@ export async function isFingerprintUsed(fingerprint: string): Promise<{ used: bo
     const record = await collection.findOne({ fingerprint })
     
     if (record) {
+      const expired = isPreviewExpired(record as IPRecord)
       return { 
-        used: record.previewUsed, 
-        timeConsumed: record.timeConsumed || 0 
+        used: record.previewUsed || expired, 
+        timeConsumed: calculateTimeConsumed(record as IPRecord),
+        isExpired: expired
       }
     }
-    return { used: false, timeConsumed: 0 }
+    return { used: false, timeConsumed: 0, isExpired: false }
   } catch (error) {
     console.error('Error checking fingerprint usage:', error)
-    return { used: false, timeConsumed: 0 }
+    return { used: false, timeConsumed: 0, isExpired: false }
   }
 }
 

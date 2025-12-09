@@ -5,7 +5,10 @@ import {
   incrementVPNAttempts,
   startPreviewSession,
   isFingerprintUsed,
-  saveFingerprint
+  saveFingerprint,
+  isPreviewExpired,
+  calculateRemainingTime,
+  calculateTimeConsumed
 } from '@/lib/db/ip-store-db'
 import { applyRateLimit } from '@/lib/rate-limiter'
 
@@ -207,8 +210,8 @@ export async function GET(req: NextRequest) {
     let fpTimeConsumed = 0
     if (fingerprint) {
       const fpCheck = await isFingerprintUsed(fingerprint)
-      if (fpCheck.used) {
-        console.log('[Precheck] Blocked: fingerprint already used preview')
+      if (fpCheck.used || fpCheck.isExpired) {
+        console.log('[Precheck] Blocked: fingerprint already used preview (used:', fpCheck.used, ', expired:', fpCheck.isExpired, ')')
         return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
       }
       fpTimeConsumed = fpCheck.timeConsumed
@@ -226,7 +229,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
     }
     
-    const ipTimeConsumed = record?.timeConsumed || 0
+    // Check if preview has expired based on absolute timestamp
+    if (isPreviewExpired(record)) {
+      console.log('[Precheck] Blocked: preview expired (timestamp)')
+      return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
+    }
+    
+    // Calculate time consumed from absolute timestamp (not stored value)
+    const ipTimeConsumed = calculateTimeConsumed(record)
 
     // ========================================
     // STEP 4: Use MAX timeConsumed from IP AND fingerprint
@@ -299,7 +309,7 @@ export async function GET(req: NextRequest) {
     // ========================================
     // STEP 10: Start preview session and link fingerprint
     // ========================================
-    await startPreviewSession(ip)
+    const sessionInfo = await startPreviewSession(ip)
     
     // Save fingerprint to link device to this IP record
     if (fingerprint) {
@@ -308,19 +318,36 @@ export async function GET(req: NextRequest) {
     }
 
     // ========================================
-    // STEP 11: Calculate remaining time (use MAX consumed)
+    // STEP 11: Calculate remaining time from absolute timestamps
     // ========================================
-    const remainingDuration = Math.max(PREVIEW_DURATION - maxTimeConsumed, 0)
+    // Re-fetch record to get accurate timestamps
+    const updatedRecord = await getIPRecord(ip)
+    const remainingDuration = calculateRemainingTime(updatedRecord)
+    const actualTimeConsumed = calculateTimeConsumed(updatedRecord)
+    
+    // Check if already expired (edge case: session started but expired)
+    if (remainingDuration <= 0 || isPreviewExpired(updatedRecord)) {
+      console.log('[Precheck] Blocked: preview expired')
+      return NextResponse.json({ status: 'blocked', reason: 'preview_used' })
+    }
     
     // All checks passed!
     console.log('[Precheck] === PASSED === Allowing preview')
-    console.log('[Precheck] Max time consumed:', maxTimeConsumed, 'seconds')
+    console.log('[Precheck] Session ID:', sessionInfo.sessionId)
+    console.log('[Precheck] Is new session:', sessionInfo.isNewSession)
+    console.log('[Precheck] Preview started at:', sessionInfo.previewStartedAt.toISOString())
+    console.log('[Precheck] Preview expires at:', sessionInfo.previewExpiresAt.toISOString())
     console.log('[Precheck] Remaining duration:', remainingDuration, 'seconds')
     
     return NextResponse.json({
       status: 'ok',
       previewDuration: remainingDuration,
-      timeConsumed: maxTimeConsumed,
+      timeConsumed: actualTimeConsumed,
+      // NEW: Include absolute timestamps for client-side sync
+      previewStartedAt: sessionInfo.previewStartedAt.toISOString(),
+      previewExpiresAt: sessionInfo.previewExpiresAt.toISOString(),
+      sessionId: sessionInfo.sessionId,
+      isNewSession: sessionInfo.isNewSession,
     })
     
   } catch (error) {

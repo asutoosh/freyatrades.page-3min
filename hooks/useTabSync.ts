@@ -8,14 +8,15 @@ import { useEffect, useRef, useCallback, useState } from 'react'
  * 
  * Key behaviors:
  * - Leader election: First tab becomes leader, others follow
- * - Timer sync: Leader broadcasts time every 2 seconds
- * - All tabs run their own timer for responsiveness, but sync from leader
+ * - Uses ABSOLUTE EXPIRY TIMESTAMP for sync (not relative time)
+ * - All tabs run their own timer using the shared expiry timestamp
  * - Only leader saves progress to server
  */
 
 interface TabSyncMessage {
-  type: 'TIMER_UPDATE' | 'PREVIEW_ENDED' | 'LEADER_PING' | 'LEADER_CLAIM' | 'PROGRESS_SAVED' | 'REQUEST_TIME'
+  type: 'TIMER_UPDATE' | 'PREVIEW_ENDED' | 'LEADER_PING' | 'LEADER_CLAIM' | 'PROGRESS_SAVED' | 'REQUEST_TIME' | 'EXPIRY_SYNC'
   timeLeft?: number
+  expiresAt?: number // Absolute timestamp when preview expires
   tabId?: string
   timestamp?: number
 }
@@ -27,6 +28,8 @@ const BROADCAST_INTERVAL_MS = 2000 // Sync timer every 2 seconds
 export function useTabSync(options: {
   timeLeft: number
   setTimeLeft: (time: number) => void
+  previewExpiresAt?: number | null // Absolute timestamp
+  setPreviewExpiresAt?: (expiresAt: number) => void
   onPreviewEnded: () => void
   onBecameLeader?: () => void
   onLostLeadership?: () => void
@@ -57,6 +60,20 @@ export function useTabSync(options: {
         setIsLeader(true)
         optionsRef.current.onBecameLeader?.()
         console.log('[TabSync] Claimed leadership')
+        
+        // Try to restore expiry from localStorage if we don't have it
+        if (!optionsRef.current.previewExpiresAt) {
+          try {
+            const storedExpiresAt = localStorage.getItem('ft_preview_expires_at')
+            if (storedExpiresAt) {
+              const expiresAtMs = parseInt(storedExpiresAt, 10)
+              if (!isNaN(expiresAtMs) && expiresAtMs > Date.now()) {
+                console.log('[TabSync] New leader restored expiry from localStorage')
+                optionsRef.current.setPreviewExpiresAt?.(expiresAtMs)
+              }
+            }
+          } catch {}
+        }
         
         // Announce leadership
         channelRef.current?.postMessage({
@@ -97,6 +114,18 @@ export function useTabSync(options: {
             }
             break
           
+          case 'EXPIRY_SYNC':
+            // Sync absolute expiry timestamp from leader
+            if (msg.expiresAt !== undefined && msg.tabId !== tabIdRef.current) {
+              console.log('[TabSync] Received expiry sync:', new Date(msg.expiresAt).toISOString())
+              optionsRef.current.setPreviewExpiresAt?.(msg.expiresAt)
+              // Also store in localStorage for persistence
+              try {
+                localStorage.setItem('ft_preview_expires_at', msg.expiresAt.toString())
+              } catch {}
+            }
+            break
+          
           case 'REQUEST_TIME':
             // Another tab is asking for current time - if we're leader, respond
             if (isLeaderRef.current && msg.tabId !== tabIdRef.current) {
@@ -105,6 +134,14 @@ export function useTabSync(options: {
                 timeLeft: optionsRef.current.timeLeft,
                 tabId: tabIdRef.current
               } as TabSyncMessage)
+              // Also send expiry timestamp
+              if (optionsRef.current.previewExpiresAt) {
+                channel.postMessage({
+                  type: 'EXPIRY_SYNC',
+                  expiresAt: optionsRef.current.previewExpiresAt,
+                  tabId: tabIdRef.current
+                } as TabSyncMessage)
+              }
             }
             break
             
@@ -153,6 +190,18 @@ export function useTabSync(options: {
       
       console.log('[TabSync] Initialized with tab ID:', tabIdRef.current)
       
+      // Try to restore expiry timestamp from localStorage first
+      try {
+        const storedExpiresAt = localStorage.getItem('ft_preview_expires_at')
+        if (storedExpiresAt) {
+          const expiresAtMs = parseInt(storedExpiresAt, 10)
+          if (!isNaN(expiresAtMs) && expiresAtMs > Date.now()) {
+            console.log('[TabSync] Restored expiry from localStorage')
+            optionsRef.current.setPreviewExpiresAt?.(expiresAtMs)
+          }
+        }
+      } catch {}
+      
       // Request current time from leader (if any exists)
       setTimeout(() => {
         channel.postMessage({
@@ -162,9 +211,10 @@ export function useTabSync(options: {
       }, 100)
       
       // Try to claim leadership after a short delay
+      // Use a longer random delay to reduce race conditions
       setTimeout(() => {
         claimLeadership()
-      }, Math.random() * 300 + 200)
+      }, Math.random() * 500 + 300)
       
       return () => {
         channel.close()
@@ -215,11 +265,12 @@ export function useTabSync(options: {
     return () => clearInterval(checkInterval)
   }, [isLeader, claimLeadership])
   
-  // Broadcast timer updates periodically (leader only)
+  // Broadcast timer updates and expiry timestamp periodically (leader only)
   useEffect(() => {
     if (!isLeader || !channelRef.current) return
     
     const timeLeft = options.timeLeft // Get current value
+    const expiresAt = options.previewExpiresAt
     
     // Broadcast immediately when becoming leader
     channelRef.current.postMessage({
@@ -228,6 +279,15 @@ export function useTabSync(options: {
       tabId: tabIdRef.current
     } as TabSyncMessage)
     
+    // Also broadcast expiry timestamp
+    if (expiresAt) {
+      channelRef.current.postMessage({
+        type: 'EXPIRY_SYNC',
+        expiresAt: expiresAt,
+        tabId: tabIdRef.current
+      } as TabSyncMessage)
+    }
+    
     const broadcastInterval = setInterval(() => {
       if (channelRef.current) {
         channelRef.current.postMessage({
@@ -235,11 +295,20 @@ export function useTabSync(options: {
           timeLeft: optionsRef.current.timeLeft,
           tabId: tabIdRef.current
         } as TabSyncMessage)
+        
+        // Broadcast expiry timestamp too
+        if (optionsRef.current.previewExpiresAt) {
+          channelRef.current.postMessage({
+            type: 'EXPIRY_SYNC',
+            expiresAt: optionsRef.current.previewExpiresAt,
+            tabId: tabIdRef.current
+          } as TabSyncMessage)
+        }
       }
     }, BROADCAST_INTERVAL_MS)
     
     return () => clearInterval(broadcastInterval)
-  }, [isLeader, options.timeLeft])
+  }, [isLeader, options.timeLeft, options.previewExpiresAt])
   
   // Broadcast preview ended
   const broadcastPreviewEnded = useCallback(() => {

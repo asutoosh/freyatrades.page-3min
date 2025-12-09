@@ -26,6 +26,11 @@ export interface PrecheckResponse {
   reason?: BlockReason
   previewDuration?: number
   timeConsumed?: number
+  // NEW: Absolute timestamps for accurate client-side sync
+  previewStartedAt?: string // ISO timestamp
+  previewExpiresAt?: string // ISO timestamp
+  sessionId?: string
+  isNewSession?: boolean
 }
 
 export interface Signal {
