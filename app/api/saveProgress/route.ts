@@ -3,7 +3,8 @@ import {
   getIPRecord, 
   createIPRecord,
   saveAt30Seconds,
-  updateTimeConsumed
+  updateTimeConsumed,
+  calculateTimeConsumed
 } from '@/lib/db/ip-store-db'
 import { getClientIP } from '@/lib/api-auth'
 import { applyRateLimit } from '@/lib/rate-limiter'
@@ -58,11 +59,15 @@ export async function POST(req: NextRequest) {
     if (trigger === 'threshold') {
       const result = await saveAt30Seconds(ip, secondsWatched)
       
+      // Re-fetch record to get accurate timeConsumed from absolute timestamp
+      const updatedRecord = await getIPRecord(ip)
+      const actualTimeConsumed = calculateTimeConsumed(updatedRecord)
+      
       // Create response
       const response = NextResponse.json({ 
         ok: true, 
         cookieSaved: result.shouldSetCookie,
-        timeConsumed: (record.timeConsumed || 0) + secondsWatched
+        timeConsumed: actualTimeConsumed
       })
       
       // Set cookie if this is first time saving
@@ -83,9 +88,13 @@ export async function POST(req: NextRequest) {
     // For periodic updates or unload
     await updateTimeConsumed(ip, secondsWatched)
     
+    // Re-fetch record to get accurate timeConsumed from absolute timestamp
+    const updatedRecord = await getIPRecord(ip)
+    const actualTimeConsumed = calculateTimeConsumed(updatedRecord)
+    
     return NextResponse.json({ 
       ok: true,
-      timeConsumed: (record.timeConsumed || 0) + secondsWatched
+      timeConsumed: actualTimeConsumed
     })
     
   } catch (error) {

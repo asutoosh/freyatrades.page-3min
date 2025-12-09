@@ -548,6 +548,7 @@ export async function incrementVPNAttempts(
             previewUsed: false,
             timeConsumed: 0,
             previewStartedAt: null,
+            previewExpiresAt: null,
             cookieSaved: false,
             firstSeen: now,
           }
@@ -735,7 +736,7 @@ export async function saveFingerprint(ip: string, fingerprint: string): Promise<
     const collection = await getCollection<IPRecord>(COLLECTIONS.IP_ACCESS)
     
     // Update record with fingerprint (only if not already set)
-    await collection.updateOne(
+    const result1 = await collection.findOneAndUpdate(
       { ip, fingerprint: { $exists: false } },
       {
         $set: { 
@@ -743,11 +744,12 @@ export async function saveFingerprint(ip: string, fingerprint: string): Promise<
           fingerprintFirstSeen: now,
           lastSeen: now 
         }
-      }
+      },
+      { returnDocument: 'after' }
     )
     
     // Also update if fingerprint field is empty string
-    await collection.updateOne(
+    const result2 = await collection.findOneAndUpdate(
       { ip, fingerprint: '' },  
       {
         $set: { 
@@ -755,8 +757,15 @@ export async function saveFingerprint(ip: string, fingerprint: string): Promise<
           fingerprintFirstSeen: now,
           lastSeen: now 
         }
-      }
+      },
+      { returnDocument: 'after' }
     )
+    
+    // Update in-memory fingerprint store for consistency
+    const updatedRecord = result1 || result2
+    if (updatedRecord) {
+      fingerprintStore.set(fingerprint, updatedRecord as IPRecord)
+    }
   } catch (error) {
     console.error('Error saving fingerprint:', error)
   }
