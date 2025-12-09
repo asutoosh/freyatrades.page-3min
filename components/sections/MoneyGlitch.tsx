@@ -3,6 +3,20 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 
+// ============ DEBUG LOGGING ============
+const DEBUG = process.env.NODE_ENV === 'development'
+const debugLog = (message: string, data?: any) => {
+  if (!DEBUG) return
+  const timestamp = new Date().toISOString().split('T')[1].slice(0, 12)
+  const style = 'background: #4e1b1b; color: #ff8888; padding: 2px 6px; border-radius: 3px;'
+  if (data !== undefined) {
+    console.log(`%c[${timestamp}] [SIGNALS]`, style, message, data)
+  } else {
+    console.log(`%c[${timestamp}] [SIGNALS]`, style, message)
+  }
+}
+// ======================================
+
 interface Signal {
   id: string
   type: 'signal' | 'update'
@@ -83,15 +97,21 @@ export default function MoneyGlitch() {
 
   // Fetch signals with pagination
   const fetchSignals = useCallback(async (skip: number = 0, append: boolean = false) => {
+    debugLog(`fetchSignals called - skip: ${skip}, append: ${append}`)
     try {
+      debugLog('📡 Fetching from /api/signals...')
       const res = await fetch(`/api/signals?limit=100&skip=${skip}`)
+      debugLog(`Response status: ${res.status}`)
       const data: ApiResponse = await res.json()
+      debugLog('API response:', data)
       
       if (data.error) {
+        debugLog(`❌ API error: ${data.error}`)
         setError(data.error)
         if (!append) setSignals([])
       } else {
         setError(null)
+        debugLog(`✅ Got ${data.signals?.length || 0} signals, total: ${data.totalCount}`)
         
         if (append && data.signals.length > 0) {
           // Prepend older signals (they go at the top)
@@ -107,14 +127,17 @@ export default function MoneyGlitch() {
       }
       
       if (data.status) {
+        debugLog(`DB status: connected=${data.status.databaseConnected}, hasSignals=${data.status.hasSignals}`)
         setDbConnected(data.status.databaseConnected)
       }
     } catch (err) {
+      debugLog('❌ Fetch error:', err)
       if (!append) {
         setError('Failed to connect to signals API')
         setSignals([])
       }
     } finally {
+      debugLog('Setting loading=false')
       setLoading(false)
       setLoadingMore(false)
     }
@@ -182,6 +205,7 @@ export default function MoneyGlitch() {
 
   // Initial load
   useEffect(() => {
+    debugLog('🚀 MoneyGlitch component mounted - starting initial fetch')
     fetchSignals(0, false)
   }, [fetchSignals])
 
@@ -235,6 +259,7 @@ export default function MoneyGlitch() {
 
   // Loading state
   if (loading) {
+    debugLog('📊 Rendering: LOADING state')
     return (
       <div className="flex flex-col h-full min-h-0">
         <div className="flex-1 space-y-4 p-4">
@@ -325,6 +350,7 @@ export default function MoneyGlitch() {
   }
 
   // Has signals - render chat view
+  debugLog(`📊 Rendering: SIGNALS view (${signals.length} signals)`)
   return (
     <div className="flex flex-col h-full min-h-0 relative">
       {/* Scrollable chat container */}
@@ -379,12 +405,12 @@ export default function MoneyGlitch() {
               {/* Header */}
               <div className="flex items-center gap-3 mb-4">
                 <img 
-                  src="/sorcerer.jpg" 
-                  alt="Sorcerer profile avatar" 
+                  src="/favicon.jpg" 
+                  alt="Freya Quinn" 
                   className="w-10 h-10 rounded-full object-cover"
                 />
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-white">sorcerer</span>
+                  <span className="font-semibold text-white">Freya Quinn</span>
                   <span className="admin-badge">admin</span>
                   <span className="text-xs text-zinc-500">
                     {formatTimestamp(signal.timestamp)}

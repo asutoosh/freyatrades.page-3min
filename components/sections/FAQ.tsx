@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 const FAQS = [
   {
     q: "What's included in the 3-Day Trial?",
-    a: "Full access to all premium signals for Gold (XAU), Oil (USO), US Indices (DJI30, NAS100), and major Forex pairs. You'll receive the exact same signals as our paying members — entry price, 4 take profit levels, and stop loss.",
+    a: "Full access to all premium signals including Gold (XAU), Oil (WTI), Indices (US30, NAS100, GER40, SPX500), Forex pairs (EUR/USD, GBP/USD, USD/JPY, GBP/JPY, AUD/USD), Crypto (BTC, ETH), and US Stocks (TSLA, NVDA, AAPL). You'll receive the exact same signals as our paying members — entry price, 4 take profit levels, and stop loss.",
   },
   {
     q: "How are signals delivered?",
@@ -50,11 +50,13 @@ export default function FAQ() {
       >
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-lg">
-            🔥
-          </div>
+          <img 
+            src="/favicon.jpg" 
+            alt="Freya Quinn" 
+            className="w-10 h-10 rounded-full object-cover"
+          />
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-white">sorcerer</span>
+            <span className="font-semibold text-white">Freya Quinn</span>
             <span className="admin-badge">admin</span>
             <span className="text-xs text-zinc-500">14:42</span>
           </div>

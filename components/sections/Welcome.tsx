@@ -13,11 +13,13 @@ export default function Welcome() {
       >
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-lg">
-            🔥
-          </div>
+          <img 
+            src="/favicon.jpg" 
+            alt="Freya Quinn" 
+            className="w-10 h-10 rounded-full object-cover"
+          />
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-white">sorcerer</span>
+            <span className="font-semibold text-white">Freya Quinn</span>
             <span className="admin-badge">admin</span>
             <span className="text-xs text-zinc-500">14:06</span>
           </div>
@@ -26,7 +28,7 @@ export default function Welcome() {
         {/* Content */}
         <div className="space-y-4 text-zinc-200 leading-relaxed">
           <p className="text-lg">
-            <span className="text-blue-400">💼</span> Welcome to Your 3-Day Trial — I'm Freya Quinn
+            <span className="text-blue-400">💼</span> Welcome to Your 3-Day Trial
           </p>
 
           <p>
@@ -76,12 +78,44 @@ export default function Welcome() {
             <p className="mt-2">
               You'll receive automated signals on major assets:
             </p>
-            <ul className="mt-2 space-y-1">
-              <li><span>🥇</span> Gold (XAU)</li>
-              <li><span>🛢️</span> Oil (USO/WTI)</li>
-              <li><span>📈</span> US Indices (DJ30, NAS100)</li>
-              <li><span>💱</span> Major Forex pairs</li>
-            </ul>
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <p className="text-yellow-400 font-medium text-sm">🥇 Commodities</p>
+                <ul className="text-sm space-y-0.5 text-zinc-300">
+                  <li>• Gold (XAU/USD)</li>
+                  <li>• Oil (WTI/USO)</li>
+                </ul>
+              </div>
+              <div className="space-y-1">
+                <p className="text-blue-400 font-medium text-sm">📈 Indices</p>
+                <ul className="text-sm space-y-0.5 text-zinc-300">
+                  <li>• US30 (Dow Jones)</li>
+                  <li>• NAS100 (Nasdaq)</li>
+                  <li>• GER40 (DAX)</li>
+                  <li>• SPX500</li>
+                </ul>
+              </div>
+              <div className="space-y-1">
+                <p className="text-green-400 font-medium text-sm">💱 Forex Pairs</p>
+                <ul className="text-sm space-y-0.5 text-zinc-300">
+                  <li>• EUR/USD</li>
+                  <li>• GBP/USD</li>
+                  <li>• USD/JPY</li>
+                  <li>• GBP/JPY</li>
+                  <li>• AUD/USD</li>
+                </ul>
+              </div>
+              <div className="space-y-1">
+                <p className="text-purple-400 font-medium text-sm">🚀 Crypto & Stocks</p>
+                <ul className="text-sm space-y-0.5 text-zinc-300">
+                  <li>• BTC/USD</li>
+                  <li>• ETH/USD</li>
+                  <li>• TSLA</li>
+                  <li>• NVDA</li>
+                  <li>• AAPL</li>
+                </ul>
+              </div>
+            </div>
           </div>
 
           <div className="pt-4 p-4 rounded-lg bg-zinc-900/50 border border-zinc-800">
@@ -104,4 +138,3 @@ export default function Welcome() {
     </div>
   )
 }
-

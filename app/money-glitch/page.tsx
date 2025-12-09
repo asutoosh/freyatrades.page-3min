@@ -7,7 +7,8 @@ import { useFingerprint, getStoredFingerprint } from '@/hooks/useFingerprint'
 import { useTabSync } from '@/hooks/useTabSync'
 
 // ============ DEBUG LOGGING ============
-const DEBUG = true
+// Set to true to enable console logs (useful for debugging)
+const DEBUG = process.env.NODE_ENV === 'development'
 const debugLog = (area: string, message: string, data?: any) => {
   if (!DEBUG) return
   const timestamp = new Date().toISOString().split('T')[1].slice(0, 12)
@@ -650,7 +651,7 @@ export default function MoneyGlitchPage() {
         </div>
       )}
       
-      {/* Overlay screens - use AnimatePresence without mode="wait" to prevent blocking */}
+      {/* Overlay screens - AnimatePresence handles exit animations */}
       <AnimatePresence>
         {/* Onboarding */}
         {appState === 'onboarding' && (

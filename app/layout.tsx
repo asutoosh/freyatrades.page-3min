@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: 'Experience live premium trading signals. 3-minute preview of real signals from Freya Quinn.',
   icons: {
     icon: [
-      { url: '/favicon.jpg', type: 'image/jpg' },
+      { url: '/favicon.jpg', type: 'image/jpeg' },
     ],
     apple: '/favicon.jpg',
   },

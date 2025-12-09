@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 
 // ============ DEBUG LOGGING ============
-const DEBUG = true
+const DEBUG = process.env.NODE_ENV === 'development'
 const debugLog = (message: string, data?: any) => {
   if (!DEBUG) return
   const timestamp = new Date().toISOString().split('T')[1].slice(0, 12)
