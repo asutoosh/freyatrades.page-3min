@@ -10,9 +10,10 @@ interface MobileNavProps {
   onChange: (section: SectionKey) => void
   timeLeft: number
   memberCount?: number
+  onTrialClick?: () => void
 }
 
-export default function MobileNav({ active, onChange, timeLeft, memberCount = 158 }: MobileNavProps) {
+export default function MobileNav({ active, onChange, timeLeft, memberCount = 158, onTrialClick }: MobileNavProps) {
   const [isOpen, setIsOpen] = useState(false)
   const lastClickRef = useRef<number>(0)
   const DEBOUNCE_MS = 300
@@ -147,16 +148,17 @@ export default function MobileNav({ active, onChange, timeLeft, memberCount = 15
 
               {/* CTA Button */}
               <div className="p-4 border-t border-white/5">
-                <motion.a
-                  href={EXTERNAL_LINKS.telegram}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <motion.button
+                  onClick={() => {
+                    setIsOpen(false)
+                    onTrialClick?.()
+                  }}
                   whileTap={{ scale: 0.98 }}
-                  className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-500 text-black font-bold"
+                  className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-500 text-black font-bold cursor-pointer"
                 >
                   <span>📅</span>
                   Join 3-Day Trial
-                </motion.a>
+                </motion.button>
                 <p className="text-center text-xs text-zinc-600 mt-2">
                   Free access • No credit card
                 </p>

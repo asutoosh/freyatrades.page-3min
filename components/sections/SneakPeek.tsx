@@ -1,6 +1,7 @@
 'use client'
 
 import { motion } from 'framer-motion'
+import { useState } from 'react'
 
 const TRADES = [
   {
@@ -45,6 +46,8 @@ const TRADES = [
 ]
 
 export default function SneakPeek() {
+  const [expandedImage, setExpandedImage] = useState<string | null>(null)
+
   return (
     <div className="space-y-4">
       <motion.div
@@ -76,13 +79,84 @@ export default function SneakPeek() {
         </div>
       </motion.div>
 
+      {/* Images Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="message-card"
+      >
+        <p className="text-sm text-zinc-400 mb-4">
+          <span>📸</span> Screenshots from the channel
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <motion.div 
+            className="relative overflow-hidden rounded-lg cursor-pointer group"
+            whileHover={{ scale: 1.02 }}
+            onClick={() => setExpandedImage('/chat1.png')}
+          >
+            <img 
+              src="/chat1.png" 
+              alt="Trade chat screenshot" 
+              className="w-full h-auto object-cover rounded-lg border border-zinc-700 group-hover:border-zinc-500 transition-colors"
+            />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+              <span className="opacity-0 group-hover:opacity-100 text-white text-sm bg-black/50 px-3 py-1 rounded-full transition-opacity">
+                Click to expand
+              </span>
+            </div>
+          </motion.div>
+          <motion.div 
+            className="relative overflow-hidden rounded-lg cursor-pointer group"
+            whileHover={{ scale: 1.02 }}
+            onClick={() => setExpandedImage('/sneakpic-3.jpg')}
+          >
+            <img 
+              src="/sneakpic-3.jpg" 
+              alt="Trade results screenshot" 
+              className="w-full h-auto object-cover rounded-lg border border-zinc-700 group-hover:border-zinc-500 transition-colors"
+            />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+              <span className="opacity-0 group-hover:opacity-100 text-white text-sm bg-black/50 px-3 py-1 rounded-full transition-opacity">
+                Click to expand
+              </span>
+            </div>
+          </motion.div>
+        </div>
+      </motion.div>
+
+      {/* Expanded Image Modal */}
+      {expandedImage && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setExpandedImage(null)}
+        >
+          <motion.img
+            initial={{ scale: 0.8 }}
+            animate={{ scale: 1 }}
+            src={expandedImage}
+            alt="Expanded view"
+            className="max-w-full max-h-[90vh] object-contain rounded-lg"
+          />
+          <button 
+            className="absolute top-4 right-4 text-white text-2xl bg-black/50 w-10 h-10 rounded-full hover:bg-black/70 transition-colors"
+            onClick={() => setExpandedImage(null)}
+          >
+            ✕
+          </button>
+        </motion.div>
+      )}
+
       {/* Trade cards */}
       {TRADES.map((trade, index) => (
         <motion.div
           key={index}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: index * 0.15 }}
+          transition={{ delay: (index + 2) * 0.15 }}
           className="message-card border-l-4 border-l-green-500"
         >
           {/* Trade header */}
@@ -150,4 +224,3 @@ export default function SneakPeek() {
     </div>
   )
 }
-

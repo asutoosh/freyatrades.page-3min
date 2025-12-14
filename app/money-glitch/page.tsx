@@ -31,6 +31,7 @@ import MobileNav from '@/components/MobileNav'
 import TimerBanner from '@/components/TimerBanner'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import SectionLoader from '@/components/SectionLoader'
+import TrialPopup from '@/components/TrialPopup'
 import { motion } from 'framer-motion'
 
 // Sections
@@ -82,6 +83,9 @@ export default function MoneyGlitchPage() {
   const [progressSaved, setProgressSaved] = useState(false) // Track if 30-second save was made
   const [isTabLeader, setIsTabLeader] = useState(true) // Is this tab the leader for timer?
   const [showErrorPopup, setShowErrorPopup] = useState(false) // Show error retry popup
+  const [showTrialPopup, setShowTrialPopup] = useState(false) // Show trial CTA popup
+  const [trialPopupShownAt30, setTrialPopupShownAt30] = useState(false) // Track if shown at 30s
+  const [trialPopupShownAt120, setTrialPopupShownAt120] = useState(false) // Track if shown at 2min
   
   // Absolute timestamp for accurate timer (survives refresh/new tabs)
   const [previewExpiresAt, setPreviewExpiresAt] = useState<number | null>(null)
@@ -501,6 +505,18 @@ export default function MoneyGlitchPage() {
         broadcastProgressSaved()
       }
       
+      // Show trial popup at 30 seconds elapsed (only once)
+      if (elapsed >= 30 && !trialPopupShownAt30) {
+        setTrialPopupShownAt30(true)
+        setShowTrialPopup(true)
+      }
+      
+      // Show trial popup at 2 minutes (120 seconds) elapsed (only once)
+      if (elapsed >= 120 && !trialPopupShownAt120) {
+        setTrialPopupShownAt120(true)
+        setShowTrialPopup(true)
+      }
+      
       // End preview when time runs out
       if (remaining <= 0) {
         clearInterval(timer)
@@ -714,6 +730,7 @@ export default function MoneyGlitchPage() {
           <Sidebar
             active={activeSection}
             onChange={handleSectionChange}
+            onTrialClick={() => setShowTrialPopup(true)}
           />
 
           {/* Main Content */}
@@ -723,6 +740,7 @@ export default function MoneyGlitchPage() {
               active={activeSection}
               onChange={handleSectionChange}
               timeLeft={timeLeft}
+              onTrialClick={() => setShowTrialPopup(true)}
             />
 
             {/* Desktop Timer Banner */}
@@ -746,6 +764,13 @@ export default function MoneyGlitchPage() {
               </Suspense>
             </main>
           </div>
+
+          {/* Trial CTA Popup */}
+          <AnimatePresence>
+            {showTrialPopup && (
+              <TrialPopup onClose={() => setShowTrialPopup(false)} />
+            )}
+          </AnimatePresence>
 
           {/* Error Retry Popup */}
           <AnimatePresence>

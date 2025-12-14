@@ -28,7 +28,7 @@ export default function Welcome() {
         {/* Content */}
         <div className="space-y-4 text-zinc-200 leading-relaxed">
           <p className="text-lg">
-            <span className="text-blue-400">💼</span> Welcome to Your 3-Day Trial
+            <span>👋</span> Welcome
           </p>
 
           <p>
@@ -36,103 +36,65 @@ export default function Welcome() {
           </p>
 
           <p>
-            I'm a UK-based trader and systems builder.
+            A UK-based trader and systems builder.
           </p>
 
           <p>
-            Since you're reading this, you've passed the basic verification and officially entered the trial.
+            If you're reading this, you're officially inside — welcome.
           </p>
 
           <p>
-            Good choice <span>🤩</span>
+            This space is built for traders who value structure over hype and discipline over emotion. No gimmicks. No magic promises. Just a clear, rule-based approach to navigating the markets.
+          </p>
+
+          <p>
+            Good choice <span>😌</span>
           </p>
 
           <div className="pt-4">
             <p className="text-yellow-400 font-semibold">
-              <span>🌟</span> A quick note about me
+              <span>🌻</span> A Quick Note About Me
             </p>
             <p className="mt-2">
-              I've spent the last few years building an automated, rule-based trading approach —
+              Over the past few years, I've focused on building an automated, rules-driven trading framework — shaped by growing up around structured thinkers. (My father worked in quantitative finance for decades, so systems and probabilities were part of everyday conversation.)
             </p>
             <p className="mt-2">
-              inspired by growing up around structured thinkers (my father worked in quantitative finance for decades).
+              I don't believe markets can be mastered — only respected.
+            </p>
+            <p className="mt-2">
+              But I do believe a well-designed system can outperform emotion, impulse, and guesswork. That's exactly what this channel is built on <span>⚙️</span>
             </p>
           </div>
 
           <div className="pt-4">
-            <p>
-              I'm not here to promise perfection or magic.
-            </p>
-            <p>
-              Markets can't be mastered — only respected.
-            </p>
-            <p>
-              But a disciplined system can beat emotions — and that's exactly what this channel is built on <span>⚙️</span> <span>📊</span>
-            </p>
-          </div>
-
-          <div className="pt-4">
-            <p className="text-orange-400 font-semibold">
-              <span>🔥</span> What You'll Get in This 3-Day Trial
+            <p className="text-blue-400 font-semibold">
+              <span>📊</span> What You'll Find Here
             </p>
             <p className="mt-2">
-              You'll receive automated signals on major assets:
+              Inside this space, you'll get:
             </p>
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <p className="text-yellow-400 font-medium text-sm">🥇 Commodities</p>
-                <ul className="text-sm space-y-0.5 text-zinc-300">
-                  <li>• Gold (XAU/USD)</li>
-                  <li>• Oil (WTI/USO)</li>
-                </ul>
-              </div>
-              <div className="space-y-1">
-                <p className="text-blue-400 font-medium text-sm">📈 Indices</p>
-                <ul className="text-sm space-y-0.5 text-zinc-300">
-                  <li>• US30 (Dow Jones)</li>
-                  <li>• NAS100 (Nasdaq)</li>
-                  <li>• GER40 (DAX)</li>
-                  <li>• SPX500</li>
-                </ul>
-              </div>
-              <div className="space-y-1">
-                <p className="text-green-400 font-medium text-sm">💱 Forex Pairs</p>
-                <ul className="text-sm space-y-0.5 text-zinc-300">
-                  <li>• EUR/USD</li>
-                  <li>• GBP/USD</li>
-                  <li>• USD/JPY</li>
-                  <li>• GBP/JPY</li>
-                  <li>• AUD/USD</li>
-                </ul>
-              </div>
-              <div className="space-y-1">
-                <p className="text-purple-400 font-medium text-sm">🚀 Crypto & Stocks</p>
-                <ul className="text-sm space-y-0.5 text-zinc-300">
-                  <li>• BTC/USD</li>
-                  <li>• ETH/USD</li>
-                  <li>• TSLA</li>
-                  <li>• NVDA</li>
-                  <li>• AAPL</li>
-                </ul>
-              </div>
-            </div>
+            <ul className="mt-2 space-y-1 text-zinc-300">
+              <li>• Rule-based trading signals on major assets</li>
+              <li>• Clear execution logic — no vague entries or emotional calls</li>
+              <li>• Risk-aware setups designed for consistency, not adrenaline</li>
+              <li>• A mindset focused on process over outcomes</li>
+            </ul>
+            <p className="mt-3">
+              This is not about chasing every move. It's about showing up, following rules, and letting probabilities do the work.
+            </p>
           </div>
 
           <div className="pt-4 p-4 rounded-lg bg-zinc-900/50 border border-zinc-800">
-            <p className="text-green-400 font-semibold mb-2">
-              <span>💎</span> Each signal includes:
+            <p className="text-orange-400 font-semibold mb-2">
+              <span>🔥</span> Final Note
             </p>
-            <ul className="space-y-1 text-sm">
-              <li>• Entry price</li>
-              <li>• 4 Take Profit levels (TP1–TP4)</li>
-              <li>• Stop Loss</li>
-              <li>• Position direction (BUY/SELL)</li>
-            </ul>
+            <p>
+              If you're looking for guarantees, this won't be for you. If you're looking for clarity, structure, and discipline — you're in the right place.
+            </p>
+            <p className="mt-2">
+              Let's trade with intention. <span>📈</span>
+            </p>
           </div>
-
-          <p className="pt-4 text-zinc-400 text-sm">
-            Take your time, explore the sections, and see for yourself why this approach works.
-          </p>
         </div>
       </motion.div>
     </div>

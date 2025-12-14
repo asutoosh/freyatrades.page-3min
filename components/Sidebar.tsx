@@ -9,9 +9,10 @@ interface SidebarProps {
   active: SectionKey
   onChange: (section: SectionKey) => void
   memberCount?: number
+  onTrialClick?: () => void
 }
 
-export default function Sidebar({ active, onChange, memberCount = 158 }: SidebarProps) {
+export default function Sidebar({ active, onChange, memberCount = 158, onTrialClick }: SidebarProps) {
   const lastClickRef = useRef<number>(0)
   const DEBOUNCE_MS = 300
   
@@ -64,17 +65,15 @@ export default function Sidebar({ active, onChange, memberCount = 158 }: Sidebar
 
       {/* CTA Button */}
       <div className="p-4 border-t border-white/5">
-        <motion.a
-          href={EXTERNAL_LINKS.telegram}
-          target="_blank"
-          rel="noopener noreferrer"
+        <motion.button
+          onClick={onTrialClick}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-500 text-black font-bold shadow-lg shadow-yellow-500/20 hover:shadow-yellow-500/40 transition-shadow"
+          className="flex items-center justify-center gap-2 w-full py-3.5 rounded-xl bg-gradient-to-r from-yellow-400 to-yellow-500 text-black font-bold shadow-lg shadow-yellow-500/20 hover:shadow-yellow-500/40 transition-shadow cursor-pointer"
         >
           <span>📅</span>
           Join 3-Day Trial
-        </motion.a>
+        </motion.button>
         <p className="text-center text-xs text-zinc-600 mt-2">
           Free access • No credit card
         </p>
